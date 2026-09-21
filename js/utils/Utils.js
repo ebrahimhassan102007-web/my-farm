@@ -5,6 +5,8 @@
  *
  * Exported names required by existing modules:
  *   uuid, randPick, randInt, randFloat, t, formatNumber, formatTime
+ * سجل التغيير (Work Order):
+ *   MF-13 — haptic() محروس (iOS يتجاهل navigator.vibrate بصمت).
  */
 
 /* ============================================================
@@ -89,6 +91,22 @@ export function lerp(a, b, t) {
 /** Promise-based delay (ms) */
 export function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * MF-13 — اهتزاز لمسي قصير عند الحصاد/الجمع.
+ * iOS Safari لا يعرّف navigator.vibrate ⇒ لا شيء (لا خطأ).
+ * أي منصة أخرى بلا دعم تتجاهل بصمت أيضًا.
+ */
+export function haptic(duration = 12) {
+    try {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+            navigator.vibrate(Math.max(0, Math.min(100, duration)) | 0);
+        }
+    } catch (e) {
+        // الاهتزاز لمسة جمالية — فشله لا يستحق أكثر من لا-شيء مشروح
+        console.debug('[Utils] haptic skipped:', e?.message || e);
+    }
 }
 
 /** Deep clone via structuredClone when available */

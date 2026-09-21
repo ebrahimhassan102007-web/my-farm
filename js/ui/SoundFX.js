@@ -4,6 +4,8 @@
  * iOS-safe: AudioContext is created lazily and resumed
  * inside user-gesture handlers (collect/start button taps).
  * Respects GameState: settings.sfx
+ * سجل التغيير (Work Order):
+ *   MF-07 — يتبع مستوى الجودة عبر QualityScaler (خفض أصوات على low).
  */
 
 export class SoundFX {

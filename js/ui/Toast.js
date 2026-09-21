@@ -2,6 +2,8 @@
  * Toast.js — إشعارات سريعة عائمة (RTL)
  * Lightweight, zero-dependency toast notifications.
  * No THREE.js, no direct game logic — pure DOM feedback.
+ * سجل التغيير (Work Order):
+ *   MF-04 — يقبل أيقونة SVG (iconHTML) مع fallback نصي.
  */
 
 export class Toast {

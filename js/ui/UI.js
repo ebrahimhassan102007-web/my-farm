@@ -11,6 +11,10 @@
  *
  * لا THREE هنا ولا منطق مزرعة — قراءة GameState وكتابة عبر الأنظمة.
  * كل فشل يُعرض كـ Toast عربي (انظر AR_ERRORS).
+ *
+ * سجل التغيير (Work Order):
+ *   MF-06 — زر «نسخ تقرير تشخيص» ينسخ حلقة Logger (آخر ٥٠ حدثًا).
+ *   MF-07 — صف «جودة الرسوم» يبدّل low/mid/high حيًّا عبر QualityScaler.
  * ============================================================
  */
 import { Components } from './Components.js';
@@ -21,6 +25,9 @@ import { LandSystem, LAND_CONFIG } from '../systems/LandSystem.js';
 import { BuildingSystem } from '../systems/BuildingSystem.js';
 import { SaveManager } from '../core/SaveManager.js';
 import { GameState } from '../core/GameState.js';
+import { Logger } from '../core/Logger.js';
+import { Quality, GRAPHICS_LABELS } from '../core/QualityScaler.js';
+import { iconHTML } from './icons.js';
 import { BUILDINGS, CROPS, ITEMS, ECONOMY, FERTILIZERS, STORAGE_CONFIG } from '../data/GameData.js';
 import { StorageSystem } from '../systems/StorageSystem.js';
 import { FarmingSystem } from '../systems/FarmingSystem.js';
@@ -330,7 +337,7 @@ export class GameUI {
             const card = document.createElement('div');
             card.className = `shop-item ${affordable ? '' : 'locked'}`;
             card.innerHTML = `
-                <div class="shop-icon">${crop.icon || seed.icon || '🌱'}</div>
+                <div class="shop-icon">${iconHTML(crop.icon || seed.icon, 30)}</div>
                 <div>
                     <div class="shop-name">${seed.name || `بذور ${crop.name}`}</div>
                     <div class="shop-desc">
@@ -462,7 +469,7 @@ export class GameUI {
             const card = document.createElement('div');
             card.className = 'shop-item';
             card.innerHTML = `
-                <div class="shop-icon">${b.icon || '🏭'}</div>
+                <div class="shop-icon">${iconHTML(b.icon, 30)}</div>
                 <div>
                     <div class="shop-name">${b.name || b.typeId} · مستوى ${b.level || 1}</div>
                     <div class="shop-desc">
@@ -516,7 +523,7 @@ export class GameUI {
             const card = document.createElement('div');
             card.className = `shop-item ${locked || !affordable ? 'locked' : ''}`;
             card.innerHTML = `
-                <div class="shop-icon">${def.icon || '🏭'}</div>
+                <div class="shop-icon">${iconHTML(def.icon, 30)}</div>
                 <div>
                     <div class="shop-name">${def.name || def.id}</div>
                     <div class="shop-desc">
@@ -745,7 +752,7 @@ export class GameUI {
             const card = document.createElement('div');
             card.className = `shop-item ${locked || !entry.affordable ? 'locked' : ''}`;
             card.innerHTML = `
-                <div class="shop-icon">${entry.icon}</div>
+                <div class="shop-icon">${iconHTML(entry.icon, 30)}</div>
                 <div>
                     <div class="shop-name">${entry.name} · ${entry.nameEn || ''}</div>
                     <div class="shop-desc">
@@ -800,7 +807,7 @@ export class GameUI {
             const card = document.createElement('div');
             card.className = `shop-item ${affordable ? '' : 'locked'}`;
             card.innerHTML = `
-                <div class="shop-icon">${tier.icon || '🧪'}</div>
+                <div class="shop-icon">${iconHTML(tier.icon, 30)}</div>
                 <div>
                     <div class="shop-name">${tier.name} · ${tier.nameEn}</div>
                     <div class="shop-desc">
@@ -967,7 +974,7 @@ export class GameUI {
         const card = document.createElement('div');
         card.className = 'shop-item';
         card.innerHTML = `
-            <div class="shop-icon">${info.icon}</div>
+            <div class="shop-icon">${iconHTML(info.icon, 30)}</div>
             <div>
                 <div class="shop-name">${info.name} · مستوى ${data.level}</div>
                 <div class="shop-desc">${info.holds}<br>${info.blocks}</div>
@@ -1187,6 +1194,21 @@ export class GameUI {
         });
         body.appendChild(soundRow);
 
+        // MF-07: جودة الرسوم — تبديل حي بلا إعادة تحميل (QualityScaler)
+        const gfxLevel = GameState.get('settings.graphics') || 'high';
+        const gfxRow = this._menuRow('🎮 جودة الرسوم', GRAPHICS_LABELS[gfxLevel] || gfxLevel, true, () => {
+            const next = Quality.cycle();
+            this._success(`🎮 جودة الرسوم: ${GRAPHICS_LABELS[next] || next}`);
+            this.render();
+        });
+        body.appendChild(gfxRow);
+
+        // MF-06: نسخ تقرير تشخيص — حلقة Logger (آخر ٥٠ حدثًا موسومًا)
+        const diagRow = this._menuRow('🧰 نسخ تقرير تشخيص', 'نسخ', true, () => {
+            this._copyDiagnostics();
+        });
+        body.appendChild(diagRow);
+
         const saveRow = this._menuRow('💾 حفظ الآن', 'حفظ', true, () => {
             try {
                 SaveManager.save();
@@ -1210,6 +1232,48 @@ export class GameUI {
         hint.className = 'hud-menu-note';
         hint.textContent = 'التقدّم يُحفظ تلقائيًا في هذا الجهاز (IndexedDB + نسخة احتياطية).';
         body.appendChild(hint);
+    }
+
+    /**
+     * MF-06 — ينسخ تقرير التشخيص (حلقة Logger) إلى الحافظة.
+     * مساران: Clipboard API (HTTPS) ثم execCommand القديم كاحتياط.
+     */
+    _copyDiagnostics() {
+        const report = Logger.report() || 'لا أحداث مسجّلة بعد — العب قليلًا ثم أعد المحاولة.';
+
+        const fallbackCopy = () => {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = report;
+                ta.style.cssText = 'position:fixed;opacity:0;top:0';
+                document.body.appendChild(ta);
+                ta.select();
+                const ok = document.execCommand?.('copy');
+                ta.remove();
+                return !!ok;
+            } catch (err) {
+                Logger.warn('GameUI', 'execCommand copy fallback failed', err);
+                return false;
+            }
+        };
+
+        const done = (ok) => {
+            if (ok) this._success('🧰 نُسخ تقرير التشخيص — ألصقه في رسالة للدعم');
+            else this._error('تعذّر النسخ التلقائي — فعّل إذن الحافظة');
+        };
+
+        try {
+            if (navigator.clipboard?.writeText) {
+                navigator.clipboard.writeText(report)
+                    .then(() => done(true))
+                    .catch(() => done(fallbackCopy()));
+            } else {
+                done(fallbackCopy());
+            }
+        } catch (err) {
+            Logger.warn('GameUI', 'diagnostics copy threw', err);
+            done(fallbackCopy());
+        }
     }
 
     _menuRow(label, value, on, handler) {

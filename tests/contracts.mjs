@@ -74,7 +74,7 @@ const { GameState } = await import('../js/core/GameState.js');
 const { Time } = await import('../js/core/TimeManager.js');
 const { Events } = await import('../js/core/EventBus.js');
 const { SaveManager } = await import('../js/core/SaveManager.js');
-const { LandSystem } = await import('../js/systems/LandSystem.js');
+const { LandSystem, LAND_CONFIG } = await import('../js/systems/LandSystem.js');
 const { FarmingSystem } = await import('../js/systems/FarmingSystem.js');
 const { ProductionSystem } = await import('../js/systems/ProductionSystem.js');
 const { InventorySystem } = await import('../js/systems/InventorySystem.js');
@@ -89,11 +89,16 @@ const { default: UIManager } = await import('../js/ui/UIManager.js');
 const { ProductionPanel } = await import('../js/ui/ProductionPanel.js');
 const { Toast } = await import('../js/ui/Toast.js');
 const { SoundFX } = await import('../js/ui/SoundFX.js');
+const { Logger } = await import('../js/core/Logger.js');
+const { Quality, GRAPHICS_PRESETS } = await import('../js/core/QualityScaler.js');
+const { haptic } = await import('../js/utils/Utils.js');
+const { PlayerController: PlayerControllerClass } = await import('../js/player/PlayerController.js');
+const { CropBatchRenderer: CropBatchRendererClass } = await import('../js/world/CropBatchRenderer.js');
 
-/* ---------- مصدر main.js ---------- */
-const mainSrc = readFileSync(join(root, 'js/main.js'), 'utf8');
+/* ---------- مصدر نواة التطبيق (MF-12: main.js صار shim؛ المنطق في core/App.js) ---------- */
+const mainSrc = readFileSync(join(root, 'js/core/App.js'), 'utf8');
 
-/** أسماء الدوال المعرّفة داخل أصناف main.js نفسها (PlayerController/CropBatchRenderer/MyFarmApp). */
+/** أسماء الدوال المعرّفة داخل أصناف نواة التطبيق نفسها (MyFarmApp — البقية فُصلت في MF-12). */
 function localMethods(className) {
     const start = mainSrc.indexOf(`class ${className}`);
     if (start < 0) return new Set();
@@ -142,8 +147,8 @@ const FIELD_TARGETS = {
     productionPanel: { class: ProductionPanel },
     toast: { class: Toast },
     soundFX: { class: SoundFX },
-    player: { local: 'PlayerController' },
-    cropBatches: { local: 'CropBatchRenderer' },
+    player: { class: PlayerControllerClass },     // MF-12: صار وحدة مستقلة (js/player/)
+    cropBatches: { class: CropBatchRendererClass }, // MF-12: صار وحدة مستقلة (js/world/)
     renderer: null,          // THREE.WebGLRenderer — خارج نطاق الفحص
     scene: null,             // THREE.Scene
     camera: null,            // THREE.PerspectiveCamera
@@ -156,7 +161,7 @@ const FIELD_TARGETS = {
 const SINGLETONS = {
     Time, GameState, Events, SaveManager, LandSystem, FarmingSystem,
     ProductionSystem, InventorySystem, StorageSystem, AnimalSystem,
-    OrderSystem, MarketSystem, BuildingSystem, XPSystem
+    OrderSystem, MarketSystem, BuildingSystem, XPSystem, Logger, Quality
 };
 
 /* ============================================================
@@ -326,7 +331,8 @@ const Layout = await import('../js/world/FarmLayout.js');
  * نستخرج قائمة الاستيراد نفسها (لا نصًا مجاورًا عشوائيًا) وندعم
  * الأسماء المستعارة: `HOUSE as HOUSE_LAYOUT` ⇒ نفحص `HOUSE`.
  */
-const layoutImportRe = /import\s*\{([^}]*)\}\s*from\s*'\.\/world\/FarmLayout\.js'/;
+// MF-12: نواة التطبيق انتقلت إلى js/core/ ⇒ الاستيراد أعمق بمستوى ('../world/...')
+const layoutImportRe = /import\s*\{([^}]*)\}\s*from\s*'\.\.\/world\/FarmLayout\.js'/;
 const layoutImport = mainSrc.match(layoutImportRe);
 const importedNames = (layoutImport ? layoutImport[1] : '')
     .split(',')
@@ -337,6 +343,316 @@ check('main.js really imports from FarmLayout', importedNames.length > 0, 'impor
 const missingExports = importedNames.filter((n) => !(n in Layout));
 check(`every FarmLayout symbol imported by main.js is exported (${importedNames.length} symbols)`,
     missingExports.length === 0, missingExports.join(', '));
+
+/* ---- 8) MF-01/MF-03: استيراد حفظ V1 ← ترقية V2 + حذف مفاتيح الطاقة ---- */
+console.log('\n── MF-01: legacy v1→v2 save import (roundtrip) ──────────');
+
+const v1Fixture = {
+    meta: { version: 1, timestamp: Date.now() - 86_400_000, checksum: 'legacy-shape' },
+    data: {
+        player: {
+            name: 'مزارع أصيل', level: 4, xp: 90, coins: 777, gems: 3,
+            energy: 50, maxEnergy: 50, energyLastRefill: 12345 // مفاتيح محذوفة المنتج
+        },
+        farm: {
+            name: 'مزرعة الأجداد', maxAnimals: 20,
+            tiles: [{
+                id: 'field_center_left', posX: -3.8, posZ: -3.5, price: 100,
+                purchased: true, prepared: true, prepProgress: 100, state: 'empty',
+                slots: [{
+                    slotIndex: 0, ox: -1.2, oz: -1.2, state: 'growing', cropType: 'wheat',
+                    plantedAt: Date.now(), readyAt: Date.now() + 5000, witherAt: Date.now() + 9000,
+                    watered: true, fertilizer: 'quality'
+                }]
+            }],
+            buildings: [], animals: []
+        },
+        inventory: { items: { wheat: { count: 12, quality: 'normal' } } }
+    }
+};
+const v1Raw = JSON.stringify(v1Fixture);
+
+lsStore.delete('myfarm_save_v2');
+lsStore.delete('myfarm_meta_v2');
+lsStore.set('myfarm_save', v1Raw); // مفتاح V1 العاري فقط — لا أثر لـ V2
+
+const legacyLoaded = await SaveManager.load();
+check('a v1-keyed save boots instead of a fresh empty farm', legacyLoaded === true);
+check('player coins survive migration (777, not the 350 default)', GameState.get('player.coins') === 777);
+check('player level survives migration', GameState.get('player.level') === 4);
+check('crop slot survives migration (wheat still growing)', GameState.get('farm.tiles')?.[0]?.slots?.[0]?.cropType === 'wheat');
+check('raw v1 snapshot backed up untouched (byte-exact)', lsStore.get('myfarm_v1_backup') === v1Raw);
+
+const backupBefore = lsStore.get('myfarm_v1_backup');
+lsStore.delete('myfarm_save_v2');
+lsStore.delete('myfarm_meta_v2');
+const reimported = await SaveManager.load();
+check('re-running the import never clobbers the original backup',
+    reimported === true && lsStore.get('myfarm_v1_backup') === backupBefore);
+
+await SaveManager.save();
+const v2Raw = lsStore.get('myfarm_save_v2');
+const v2Payload = v2Raw ? JSON.parse(v2Raw) : null;
+check('v2 key written after the legacy import', !!v2Payload && v2Payload.meta?.version === 2);
+check('v2 checksum roundtrips byte-exact (data intact)',
+    !!v2Payload && SaveManager._validateChecksum(v2Payload).valid === true);
+check('MF-03/D2(d): retired energy keys stripped from migrated save',
+    !!v2Payload &&
+    !('energy' in (v2Payload.data?.player || {})) &&
+    !('maxEnergy' in (v2Payload.data?.player || {})) &&
+    !('energyLastRefill' in (v2Payload.data?.player || {})));
+
+/* ---- 9) D2(b): الكوينز لا تسالب أبدًا عبر الشراء/البيع ---- */
+console.log('\n── D2(b): coins never go negative across flows ─────────');
+
+GameState.reset();
+LandSystem.init();
+check('MF-03/D2(d): default player state has no energy keys', (() => {
+    const p = GameState.get('player');
+    return !('energy' in p) && !('maxEnergy' in p) && !('energyLastRefill' in p);
+})());
+
+const lockedField = LandSystem.getAllFields().find((f) => !f.purchased);
+check('a locked field exists for the purchase test', !!lockedField);
+
+GameState.set('player.coins', 10); // أقل من سعر الحقل
+const deniedBuy = LandSystem.purchaseField(lockedField.id);
+check('under-funded land purchase is denied',
+    deniedBuy.success === false && deniedBuy.reason === 'insufficient-funds');
+check('denied purchase leaves coins untouched (10 ≥ 0)', GameState.get('player.coins') === 10);
+
+GameState.set('player.coins', 0);
+const deniedSell = InventorySystem.sell('bread', 1);
+check('selling an unowned item fails cleanly', deniedSell.success === false);
+check('failed sale keeps coins at exactly 0, never negative', GameState.get('player.coins') === 0);
+
+const fundedCoins = LAND_CONFIG.fieldPrice + 50;
+GameState.set('player.coins', fundedCoins);
+const okBuy = LandSystem.purchaseField(lockedField.id);
+check('funded purchase charges the exact config price',
+    okBuy.success === true && GameState.get('player.coins') === fundedCoins - LAND_CONFIG.fieldPrice);
+check('coins stay ≥ 0 after a successful purchase', GameState.get('player.coins') >= 0);
+
+/* ---- 10) MF-11: إيقاف tick عند إخفاء الصفحة ---- */
+console.log('\n── MF-11: hidden-tab tick suspension ───────────────────');
+
+const docListeners = new Map();
+document.addEventListener = (type, fn) => docListeners.set(type, fn);
+document.removeEventListener = (type) => docListeners.delete(type);
+
+GameState.set('time.lastTick', Date.now() - 60_000); // محاكاة إخفاء 60 ثانية
+Time.start();
+check('time engine starts', Time.isRunning() === true);
+check('visibilitychange listener installed', docListeners.has('visibilitychange'));
+
+document.hidden = true;
+docListeners.get('visibilitychange')?.();
+check('tick suspends while the page is hidden (no interval running)',
+    Time._suspended === true && Time._interval === null);
+
+document.hidden = false;
+docListeners.get('visibilitychange')?.();
+check('tick resumes when the page returns', Time._suspended === false && Time._interval !== null);
+check('the 60s hidden gap is compensated offline, not live-ticked',
+    Math.abs((GameState.get('time.lastTick') || 0) - Date.now()) < 2000);
+Time.stop();
+
+/* ---- 11) MF-06: المسجِّل المركزي يلتقط ولا يرمي أبدًا ---- */
+console.log('\n── MF-06: central Logger — captures, never throws ──────');
+
+const ringBefore = Logger.size;
+Logger.info('ContractsTest', 'unit-check');
+Logger.warn('ContractsTest', 'something soft failed', { code: 42 });
+check('logger appends tagged entries to the ring', Logger.size === ringBefore + 2);
+
+let loggerThrew = false;
+try {
+    const circular = {};
+    circular.self = circular; // كائن دائري — يجب ألا يكسر المسجِّل
+    Logger.error('ContractsTest', new Error('boom'), circular);
+    Logger.debug('ContractsTest', undefined, null);
+} catch (e) {
+    loggerThrew = true;
+}
+check('logger survives Error objects, circular JSON and nullish args', !loggerThrew);
+check('last entry keeps its tag and level', (() => {
+    const last = Logger.ring().at(-1);
+    return last?.tag === 'ContractsTest' && last?.level === 'debug';
+})());
+
+for (let i = 0; i < 80; i++) Logger.info('Flood', `msg #${i}`);
+check('ring buffer is capped at 50 events (R4: bounded memory)', Logger.size <= 50);
+check('report() renders a copyable text block',
+    typeof Logger.report() === 'string' && Logger.report().includes('[Flood]'));
+
+/* ---- 12) MF-07: QualityScaler — إعدادات حيّة وآمنة ---- */
+console.log('\n── MF-07: QualityScaler live switching ─────────────────');
+
+check('three presets exist with sane budgets',
+    ['low', 'mid', 'high'].every((k) => {
+        const p = GRAPHICS_PRESETS[k];
+        return p && p.pixelRatio > 0 && p.shadowSize > 0 && typeof p.shadows === 'boolean';
+    }));
+check('low disables dynamic shadows (thermal budget)', GRAPHICS_PRESETS.low.shadows === false);
+check('high uses the 2048 shadow map at 2x pixels',
+    GRAPHICS_PRESETS.high.shadowSize === 2048 && GRAPHICS_PRESETS.high.pixelRatio === 2);
+
+let qualityThrew = false;
+try {
+    Quality.apply('low');                 // بلا app — يجب ألا يرمي
+    Quality.apply('nonsense-tier');       // مستوى مجهول ⇒ تحذير ويبقى ثابتًا
+} catch (e) {
+    qualityThrew = true;
+}
+check('apply() never throws, even with no app attached', !qualityThrew);
+check('unknown tiers are rejected (state keeps low)', Quality.current === 'low');
+check('cycle() rotates low → mid', Quality.cycle() === 'mid');
+check('settings.graphics persists the chosen tier', GameState.get('settings.graphics') === 'mid');
+Quality.apply('high'); // إعادة الوضع الافتراضي لبقية الفحوص
+check('haptic() is exported and safe to call headless',
+    (() => { try { haptic(12); return true; } catch (e) { return false; } })());
+
+/* ---- 12ب) MF-04: SVG icon sprite maps + never throws ---- */
+console.log('\n── MF-04: icons.js — svg sprite with emoji fallback ─────');
+
+const { iconHTML } = await import('../js/ui/icons.js');
+const { ITEMS: GD_ITEMS } = await import('../js/data/GameData.js');
+
+check('iconHTML("🌾") renders a real <svg> sprite (mf-icon class)',
+    iconHTML('🌾').startsWith('<svg') && iconHTML('🌾').includes('class="mf-icon'));
+check('undefined art falls back to plain-text emoji span (mf-emoji)',
+    iconHTML('🦄').includes('mf-emoji'));
+check('null token resolves to the neutral box icon, never throws',
+    iconHTML(null).startsWith('<svg'));
+
+let iconThrew = false;
+try {
+    for (const it of Object.values(GD_ITEMS || {})) iconHTML(it?.icon);
+    iconHTML(undefined); iconHTML(42); iconHTML({});
+} catch (e) {
+    iconThrew = true;
+}
+check('every GameData item emoji either maps or falls back — zero throws', !iconThrew);
+
+/* ---- 12ج) MF-10: درس أول ٦٠ ثانية — يوجّه ويُكمل ولا يُعاد ---- */
+console.log('\n── MF-10: first-time tutorial — plant→water→harvest→sell ──');
+
+const { Tutorial, TUTORIAL_STEPS, TUTORIAL_FIRST_GROW_MS } = await import('../js/ui/Tutorial.js');
+
+GameState.reset();
+LandSystem.init();
+FarmingSystem.hydrate?.();
+
+check('four locked steps in Hay Day order',
+    TUTORIAL_STEPS.join(',') === 'plant,water,harvest,sell');
+check('first wheat grows in ~60s, not the full crop time',
+    TUTORIAL_FIRST_GROW_MS === 60_000);
+
+const tField = LandSystem.getAllFields().find((f) => f.id === LAND_CONFIG.baseUnlocked[0]);
+check('tutorial targets the base unlocked field', !!tField && tField.purchased);
+
+const tEvents = [];
+Events.on('tutorial:started', () => tEvents.push('started'));
+Events.on('tutorial:step', () => tEvents.push('step'));
+Events.on('tutorial:completed', (d) => tEvents.push(`completed:${d?.reason}`));
+
+check('brand-new farm qualifies for the tutorial', Tutorial.shouldStart() === true);
+Tutorial.start();
+check('tutorial announces itself (tutorial:started)', tEvents.includes('started'));
+check('start() is running the plant step first', Tutorial.running === true && Tutorial.stepName === 'plant');
+
+InventorySystem.add('wheat_seed', 1);
+const tPlant = FarmingSystem.plantSeed(tField.id, 0, 'wheat');
+check('planting the highlighted slot succeeds', tPlant.success === true, tPlant.error);
+check('tutorial advances to step 2 (water)', GameState.get('tutorial.step') === 1);
+check('first wheat is accelerated to ~60s',
+    (() => {
+        const s = FarmingSystem.getOrCreateSlots(tField.id)[0];
+        return Math.abs(s.readyAt - (Date.now() + TUTORIAL_FIRST_GROW_MS)) < 2000;
+    })());
+
+const tWater = FarmingSystem.waterSlot(tField.id, 0);
+check('watering succeeds', tWater.success === true, tWater.error);
+check('tutorial advances to step 3 (harvest)', GameState.get('tutorial.step') === 2);
+
+FarmingSystem.forceReady(tField.id);
+const tHarvest = FarmingSystem.harvestSlot(tField.id, 0);
+check('harvesting succeeds', tHarvest.success === true, tHarvest.error);
+check('tutorial advances to step 4 (sell)', GameState.get('tutorial.step') === 3);
+
+InventorySystem.add('wheat', 1);
+const tList = MarketSystem.listItem('wheat', 1, 1);
+check('listing first crop at the market kiosk succeeds', tList.success === true, tList.error);
+check('selling completes the tutorial', GameState.get('tutorial.completed') === true);
+check('final step index parked at 4', GameState.get('tutorial.step') === 4);
+check('completion event fired with a reason',
+    tEvents.some((e) => e.startsWith('completed:')));
+check('tutorial never replays (shouldStart false, second start() no-ops)',
+    Tutorial.shouldStart() === false && Tutorial.start() === Tutorial);
+
+GameState.reset(); // لا نسرّب حالة الدرس إلى الفحوص التالية
+
+/* ---- 13) D2(c): لا أرقام سحرية في نصوص الواجهة (مسح ساكن) ---- */
+console.log('\n── D2(c): no numeric literals embedded in UI strings ───');
+
+const UI_SCAN_FILES = [
+    join(root, 'js/core/App.js'),
+    join(root, 'js/main.js'),
+    join(root, 'js/player/PlayerController.js'),
+    join(root, 'js/world/CropBatchRenderer.js'),
+    ...readdirSync(join(root, 'js/ui')).filter((f) => f.endsWith('.js')).map((f) => join(root, 'js/ui', f))
+];
+const STRING_RE = /(?:'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`)/g;
+const numericViolations = [];
+
+for (const file of UI_SCAN_FILES) {
+    let src = readFileSync(file, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')   // تعليقات كتلية
+        .replace(/\/\/[^\n]*/g, '');        // تعليقات سطرية
+    STRING_RE.lastIndex = 0;
+    let sm;
+    while ((sm = STRING_RE.exec(src))) {
+        const raw = sm[0];
+        if (!/[؀-ۿ]/.test(raw)) continue;      // عربية؟ (نص واجهة)
+        if (raw.includes('<')) continue;       // قالب HTML — خارج النطاق
+        const body = raw.slice(1, -1).replace(/\$\{[\s\S]*?\}/g, ''); // الاستيفاء مسموح
+        if (/[0-9٠-٩]/.test(body)) {
+            numericViolations.push(`${file.split('/').pop()}: ${body.slice(0, 60)}`);
+        }
+    }
+}
+
+check('no hardcoded numbers inside Arabic UI strings (main.js + ui/*)',
+    numericViolations.length === 0,
+    numericViolations.join(' | '));
+
+/* ---- 14) MF-12: تقسيم main.js — الوحدات موجودة وتُصدِّر الوجهة نفسها ---- */
+console.log('\n── MF-12: main.js split — App shim + extracted modules ──');
+
+const appSrc = readFileSync(join(root, 'js/core/App.js'), 'utf8');
+check('core/App.js holds the app core (class + boot)',
+    appSrc.includes('class MyFarmApp') && appSrc.includes('new MyFarmApp') && appSrc.includes('window.MY_FARM'));
+
+const { PlayerController } = await import('../js/player/PlayerController.js');
+const { CropBatchRenderer } = await import('../js/world/CropBatchRenderer.js');
+
+check('PlayerController extracted intact (public API preserved)',
+    ['setBounds', 'jump', 'loadModel', 'createFallbackAvatar', 'bindHandSocket',
+     'buildToolMesh', 'equipItem', 'playToolSwing', 'cancelToolSwing', 'setupAnimations',
+     'transitionTo', 'update'].every((m) => classMethods(PlayerController).has(m)),
+    'missing on PlayerController');
+check('CropBatchRenderer extracted intact (public API preserved)',
+    ['markDirty', 'setVisible', 'rebuild', 'pulse', 'update'].every((m) => classMethods(CropBatchRenderer).has(m)),
+    'missing on CropBatchRenderer');
+
+const shimSrc = readFileSync(join(root, 'js/main.js'), 'utf8');
+check('main.js is a thin boot shim re-exporting the same faces',
+    shimSrc.includes("./core/App.js") && shimSrc.includes('MyFarmApp') && shimSrc.split('\n').length <= 40);
+check('no legacy backup entry points remain in repo',
+    (() => {
+        const gone = (rel) => { try { readFileSync(join(root, rel)); return false; } catch { return true; } };
+        return gone('js/main.backup.js') && gone('MY_FARM_3D_Gemini_Camera_Updated.html');
+    })());
 
 /* ---------- ملخص ---------- */
 console.log('\n' + '═'.repeat(60));

@@ -17,10 +17,17 @@
  *
  * الأزرار الجانبية تُصدر `hud:panel` على ناقل الأحداث؛ اللوحات نفسها
  * في js/ui/UI.js (متجر/مخزن/طلبات/سوق/خريطة/قائمة).
+ *
+ * سجل التغيير (Work Order):
+ *   MF-04 — أيقونات شريط الأدوات والعملات/المخازن أصبحت SVG من
+ *           ui/icons.js (خط OS لم يعد يقرر شكلها)، والإيموجي fallback.
+ *   MF-13 — نبضة squash & stretch على صومعة/حظيرة الـ HUD عند وصول محصول.
  * ============================================================
  */
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { StorageSystem } from '../systems/StorageSystem.js';
+import { iconHTML } from './icons.js';
+import { xpForLevel } from '../systems/XPSystem.js';
 
 const SEASONS_AR = {
   spring: 'الربيع',
@@ -125,12 +132,12 @@ export class HUD {
         <div class="hud-center-col">
           <div class="hud-currencies">
             <div class="hud-currency-item coins">
-              <span class="icon" aria-hidden="true">💰</span>
+              <span class="icon" aria-hidden="true">${iconHTML('coin', 18)}</span>
               <span id="mf-coins">0</span>
               <button type="button" class="hud-plus" id="hud-btn-add-coins" aria-label="شراء عملات">+</button>
             </div>
             <div class="hud-currency-item gems">
-              <span class="icon" aria-hidden="true">💎</span>
+              <span class="icon" aria-hidden="true">${iconHTML('gem', 18)}</span>
               <span id="mf-gems">0</span>
               <button type="button" class="hud-plus" id="hud-btn-add-gems" aria-label="شراء جواهر">+</button>
             </div>
@@ -139,14 +146,14 @@ export class HUD {
           <!-- 🌾 الصومعة (محاصيل خام) · 🧺 الحظيرة (منتجات/عدة) -->
           <div class="hud-storage-row" id="hud-storage-row" aria-label="امتلاء المخازن">
             <button type="button" class="hud-storage-pill silo" id="hud-btn-silo" aria-label="الصومعة">
-              <span class="st-icon" aria-hidden="true">🌾</span>
+              <span class="st-icon" aria-hidden="true">${iconHTML('wheat', 18)}</span>
               <span class="st-body">
                 <span class="st-track"><span class="st-fill" id="mf-silo-fill"></span></span>
                 <span class="st-text" id="mf-silo-text">0 / 150</span>
               </span>
             </button>
             <button type="button" class="hud-storage-pill barn" id="hud-btn-barn" aria-label="الحظيرة">
-              <span class="st-icon" aria-hidden="true">🧺</span>
+              <span class="st-icon" aria-hidden="true">${iconHTML('barn', 18)}</span>
               <span class="st-body">
                 <span class="st-track"><span class="st-fill" id="mf-barn-fill"></span></span>
                 <span class="st-text" id="mf-barn-text">0 / 150</span>
@@ -213,6 +220,9 @@ export class HUD {
       this.eventBus.on('quest:completed', () => this.renderMissions());
       this.eventBus.on('quest:claimed', () => this.renderMissions());
       this.eventBus.on('crop:harvested', () => this.syncSeedCounts());
+      // MF-13: حبة تسقط في الصومعة ⇒ نبضة squash & stretch على أيقونتها
+      this.eventBus.on('crop:harvested', () => this.squashPill('silo'));
+      this.eventBus.on('animal:collected', () => this.squashPill('barn'));
       this.eventBus.on('time:hour', () => this.pullClock());
       this.eventBus.on('time:day', () => this.pullClock());
       this.eventBus.on('game:tick', () => this.pullClock());
@@ -295,7 +305,7 @@ export class HUD {
         this.updateLevel(value);
         break;
       case 'player.xp':
-        this.updateXP(value, this.getState('player.xpToNext', 100));
+        this.updateXP(value, this.xpToNext());
         break;
       case 'player.xpToNext':
         this.updateXP(this.getState('player.xp', 0), value);
@@ -312,11 +322,23 @@ export class HUD {
     }
   }
 
+  /**
+   * MF-13 — squash & stretch على أقراص المخازن عند وصول محصول.
+   * كلاس CSS يُعاد تشغيله (لا توقيتات، لا تخصيص — R4).
+   */
+  squashPill(store = 'silo') {
+    const el = this.container?.querySelector?.(store === 'barn' ? '#hud-btn-barn' : '#hud-btn-silo');
+    if (!el || !el.classList) return;
+    el.classList.remove('squash-pop');
+    void el.offsetWidth; // reflow لإعادة تشغيل الأنيميشن
+    el.classList.add('squash-pop');
+  }
+
   refreshAll() {
     this.updateCoins(this.getState('player.coins', 0));
     this.updateGems(this.getState('player.gems', 0));
     this.updateLevel(this.getState('player.level', 1));
-    this.updateXP(this.getState('player.xp', 0), this.getState('player.xpToNext', 100));
+    this.updateXP(this.getState('player.xp', 0), this.xpToNext());
     this.renderMissions();
     this.syncSeedCounts();
     this.syncStorage();
@@ -331,6 +353,12 @@ export class HUD {
   updateGems(val) {
     const el = this.container?.querySelector('#mf-gems');
     if (el) el.textContent = Number(val ?? 0).toLocaleString('en-US');
+  }
+
+  /** MF-05: حدّ XP التالي يُقرأ من منحنى XPSystem — لا «100» سحرية (R1). */
+  xpToNext() {
+    const level = Number(this.getState('player.level', 1)) || 1;
+    return this.getState('player.xpToNext') ?? xpForLevel(level);
   }
 
   updateLevel(val) {
@@ -368,7 +396,8 @@ export class HUD {
       const icon = document.createElement('span');
       icon.className = 'slot-icon';
       icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = item.icon;
+      // MF-04: SVG موحّد من ui/icons.js — الإيموجي fallback فقط
+      icon.innerHTML = iconHTML(item.icon, 26);
       slot.appendChild(icon);
 
       if (item.count !== undefined && item.count !== null) {

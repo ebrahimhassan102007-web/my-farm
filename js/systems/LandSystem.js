@@ -3,16 +3,23 @@
  * MY FARM 3D - LAND & EXPANSION SYSTEM
  * Handles 10 Locked Lands, 100 Coins Purchase, Axe Preparation & Farming Ready State
  * ============================================================
+ * سجل التغيير (Work Order):
+ *   MF-05 — سعر الحقل وافتراضي الكوينز من مصدر واحد (LAND_CONFIG +
+ *           ECONOMY.startingCoins) — لا أرقام سحرية في النظام.
+ *   MF-06 — كل catch صامت أصبح تحذيرًا موسومًا عبر Logger (R2).
  */
 import { Events } from '../core/EventBus.js';
 import { GameState } from '../core/GameState.js';
 import { SaveManager } from '../core/SaveManager.js';
+import { Logger } from '../core/Logger.js';
 import { StorageSystem } from './StorageSystem.js';
+import { ECONOMY } from '../data/GameData.js';
 import { FIELD_PLOTS, FIELD_ZONE } from '../world/FarmLayout.js';
 
 export const LAND_CONFIG = Object.freeze({
     fieldPrice: 100,
     hitsRequired: 4, // 4 ضربات فأس لتجهيز الأرض بالكامل
+    prepRewardXp: 25, // XP منحة تجهيز الحقل — اعرضها للاعب من هنا فقط (R1)
     baseUnlocked: ['field_center_left', 'field_center_right'],
 
     /*
@@ -96,7 +103,9 @@ class LandSystemService {
         try {
             const tiles = GameState.get('farm.tiles');
             if (Array.isArray(tiles) && tiles.length > 0) return tiles;
-        } catch (e) {}
+        } catch (e) {
+            Logger.warn('LandSystem', 'getAllFields: farm.tiles read failed, using in-memory fields', e);
+        }
         return this.fields;
     }
 
@@ -122,10 +131,13 @@ class LandSystemService {
             return { success: false, reason: 'already-purchased' };
         }
 
-        let currentCoins = 350;
+        // MF-05: الافتراضي من الاقتصاد المركزي — لا 350 سحرية (R1)
+        let currentCoins = ECONOMY.startingCoins;
         try {
-            currentCoins = GameState.get('player.coins') ?? 350;
-        } catch (e) {}
+            currentCoins = GameState.get('player.coins') ?? ECONOMY.startingCoins;
+        } catch (e) {
+            Logger.warn('LandSystem', 'purchaseField: coins read fell back to ECONOMY.startingCoins', e);
+        }
 
         const price = field.price || LAND_CONFIG.fieldPrice;
 
@@ -138,7 +150,11 @@ class LandSystemService {
         const remainingCoins = currentCoins - price;
         try {
             GameState.set('player.coins', remainingCoins);
-        } catch (e) {}
+        } catch (e) {
+            Logger.error('LandSystem', 'purchaseField: coin deduction failed — aborting purchase to keep wallet correct', e);
+            Events.emit('land:purchase-failed', { field, price, currentCoins, reason: 'wallet-error' });
+            return { success: false, reason: 'wallet-error' };
+        }
 
         // تحديث حالة الأرض: تم الشراء ولكنها غير مجهزة بعد!
         field.purchased = true;
@@ -150,7 +166,9 @@ class LandSystemService {
         try {
             GameState.set('farm.tiles', [...fields]);
             SaveManager.save();
-        } catch (e) {}
+        } catch (e) {
+            Logger.error('LandSystem', 'purchaseField: tiles persist failed after coin deduction', e);
+        }
 
         Events.emit('land:purchased', {
             field,
@@ -185,7 +203,9 @@ class LandSystemService {
         try {
             GameState.set('farm.tiles', [...fields]);
             SaveManager.save();
-        } catch (e) {}
+        } catch (e) {
+            Logger.error('LandSystem', 'strikeFieldWithAxe: prep progress persist failed', e);
+        }
 
         Events.emit('land:axe-hit', {
             field,

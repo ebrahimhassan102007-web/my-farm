@@ -11,7 +11,14 @@
  *
  * Consumed by: ProductionSystem, BuildingSystem, AnimalSystem,
  * MarketSystem, OrderSystem, SocialSystem, EventSystem, Components.
+ *
+ * سجل التغيير (Work Order):
+ *   MF-02 — FARMING_CONFIG.witherEnabled (افتراضيًا false): المحاصيل لا تذبل.
+ *   MF-03 — ECONOMY.startingEnergy حُذفت مع نظام الطاقة بالكامل.
  * ============================================================
+ * سجل التغيير (Work Order):
+ *   MF-03 — حُذف كتالوج الطاقة (ECONOMY.energy) نهائيًا.
+ *   MF-05 — بيانات جديدة: QUEST_POOL/CUSTOMER_POOL/CALENDAR (مصدر R1 الوحيد).
  */
 
 /*
@@ -757,7 +764,7 @@ export const EXPANSIONS = Object.freeze(
 export const ECONOMY = Object.freeze({
     startingCoins: 350,
     startingGems: 10,
-    startingEnergy: 50,
+    // MF-03: startingEnergy أُزيلت — نظام الطاقة حُذف كليًا (عدّاد وهمي بلا مستهلك).
 
     maxFriends: 50,
     dailyGiftsLimit: 20,
@@ -770,6 +777,18 @@ export const ECONOMY = Object.freeze({
     maxActiveOrders: 6,
     orderRefreshInterval: 300, // 5 دقائق (ثواني)
     orderRewardMultiplier: 1.35
+});
+
+/* ============================================================
+   FARMING_CONFIG — ضبط حلقة الزراعة
+   ============================================================
+   MF-02 (قرار منتج — Hay Day): المحاصيل لا تذبل أبدًا.
+   الناضج ينتظر اللاعب إلى الأبد؛ لا لاعب يخسر محصولًا مزروعًا.
+   يبقى مسار «الذبول» في الرسم والحالة لآلية مستقبلية
+   («غياب طويل +24س») خلف هذه الراية — الافتراضي: مطفأ.
+   ============================================================ */
+export const FARMING_CONFIG = Object.freeze({
+    witherEnabled: false
 });
 
 /* ============================================================

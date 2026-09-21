@@ -2,6 +2,10 @@
  * GameState.js — Single Source of Truth
  * Immutable state updates via structured clone.
  * Notifies subscribers on changes.
+ *
+ * سجل التغيير (Work Order):
+ *   MF-03 — أُزيلت حقول الطاقة (energy/maxEnergy/energyLastRefill):
+ *           لا فعل يستهلكها، وعدّادها الوهمي يربك اللاعب (قرار: بلا طاقة).
  */
 
 import { Events } from './EventBus.js';
@@ -30,9 +34,7 @@ class GameStateManager {
                 xpToNext: 100,
                 coins: 350,
                 gems: 10,
-                energy: 50,
-                maxEnergy: 50,
-                energyLastRefill: Date.now(),
+                // MF-03: لا حقول طاقة — تُحذف من الحفوظات القديمة في SaveManager._stripRetiredKeys
                 createdAt: Date.now(),
                 lastLogin: Date.now(),
                 totalPlayTime: 0,
@@ -131,6 +133,12 @@ class GameStateManager {
                 achievements: [],
                 lastDailyReset: 0,
                 lastWeeklyReset: 0
+            },
+
+            // MF-10: درس أول ٦٠ ثانية — يُحفظ الإكمال ولا يُعاد أبدًا
+            tutorial: {
+                step: 0,
+                completed: false
             },
 
             settings: {

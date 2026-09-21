@@ -361,6 +361,47 @@ check('Crop stays ready (not lost)', FarmingSystem.getOrCreateSlots(field.id)[0]
 GameState.set('storage.silo', { level: 1, capacity: 300 });
 
 /* ============================================================
+   8ب) MF-02/MF-03 — إصلاحات الاستبقاء: لا ذبول + لا طاقة
+   ============================================================ */
+section('MF-02: wither off by default — crops wait forever');
+
+const live = FarmingSystem.getOrCreateSlots(field.id);
+live[0].witherAt = Date.now() - 1000; // موعد ذبول بأسلوب V1 في الماضي
+live[0].watered = false;
+FarmingSystem._lastGrowthCheck = 0;   // تجاوز خانق الـ 250ms
+FarmingSystem.updateGrowth();
+check('Ready crop past its legacy wither deadline stays READY (Hay Day rule)',
+    live[0].state === 'ready');
+check('New plantings carry no wither deadline at all', (() => {
+    const clean = FarmingSystem.harvestSlot(field.id, 0);
+    const again = FarmingSystem.plantSeed(field.id, 0, 'wheat');
+    const slot = FarmingSystem.getOrCreateSlots(field.id)[0];
+    return clean.success && again.success && slot.witherAt === 0;
+})());
+
+section('MF-02: legacy withered crops revive on load (saves are sacred)');
+
+const revivedSlots = FarmingSystem._normalizeSlots([
+    { slotIndex: 0, ox: -1.2, oz: -1.2, state: 'withered', cropType: 'wheat',
+      plantedAt: 1000, readyAt: 2000, witherAt: 3000, watered: false, fertilizer: 'quality' }
+]);
+check('A saved withered slot revives to ready', revivedSlots[0].state === 'ready');
+check('Revival keeps the invested fertilizer tier', revivedSlots[0].fertilizer === 'quality');
+
+// تنظيف ما زرعناه في الفحص السابق — الخانة تعود فارغة للأقسام التالية
+FarmingSystem.forceReady(field.id);
+const cleanupHarvest = FarmingSystem.harvestSlot(field.id, 0);
+check('Test field returned to empty for the next sections',
+    cleanupHarvest.success && FarmingSystem.getOrCreateSlots(field.id)[0].state === 'empty');
+
+section('MF-03: energy system removed — no ghost stat');
+
+const playerNow = GameState.get('player');
+check('player defaults carry no energy fields',
+    !('energy' in playerNow) && !('maxEnergy' in playerNow) && !('energyLastRefill' in playerNow),
+    Object.keys(playerNow).join(','));
+
+/* ============================================================
    9) الحيوانات: إطعام ← إنتاج ← جمع (Brief §1 «Animals & feed»)
    ============================================================ */
 
