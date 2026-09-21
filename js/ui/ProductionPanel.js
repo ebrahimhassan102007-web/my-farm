@@ -12,8 +12,10 @@
  * Dependencies are injected: GameState, Events,
  * ProductionSystem, SoundFX, Toast — nothing hard-wired.
  * ============================================================
+ *   QA-§1b — فقاعة tick تسجّل تعذّر القراءة بدل البلع الصامت.
  */
 import { getBuilding, getItem, RECIPES } from '../data/GameData.js';
+import { Logger } from '../core/Logger.js';
 import { formatTime, formatNumber } from '../utils/Utils.js';
 
 export class ProductionPanel {
@@ -386,7 +388,12 @@ export class ProductionPanel {
         if (!this._chipLayer || !this.projector || !this.getBuildingWorldPos) return;
 
         let buildings = [];
-        try { buildings = this.GameState.get('farm.buildings') || []; } catch (e) { return; }
+        try {
+            buildings = this.GameState.get('farm.buildings') || [];
+        } catch (e) {
+            Logger.debug('ProductionPanel', 'chips tick skipped (state not ready)', e);
+            return;
+        }
 
         const active = buildings.filter(b => (b.productionQueue || []).length > 0);
         const alive = new Set();

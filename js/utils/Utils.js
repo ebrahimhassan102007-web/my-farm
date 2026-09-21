@@ -5,7 +5,12 @@
  *
  * Exported names required by existing modules:
  *   uuid, randPick, randInt, randFloat, t, formatNumber, formatTime
+ * سجل التغيير (Work Order):
+ *   MF-13 — haptic() محروس (iOS يتجاهل navigator.vibrate بصمت).
+ *   QA-§1b — ٪100 من fallback الهويات/النسخ/التهيئة مسجَّلة عبر Logger.debug.
  */
+import { Logger } from '../core/Logger.js';
+
 
 /* ============================================================
    IDENTIFIERS
@@ -24,7 +29,9 @@ export function uuid() {
         ) {
             return globalThis.crypto.randomUUID();
         }
-    } catch (e) { /* fall through */ }
+    } catch (e) {
+        Logger.debug('Utils', 'crypto.randomUUID unavailable — manual fallback', e);
+    }
 
     return (
         'id-' +
@@ -91,13 +98,30 @@ export function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * MF-13 — اهتزاز لمسي قصير عند الحصاد/الجمع.
+ * iOS Safari لا يعرّف navigator.vibrate ⇒ لا شيء (لا خطأ).
+ * أي منصة أخرى بلا دعم تتجاهل بصمت أيضًا.
+ */
+export function haptic(duration = 12) {
+    try {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+            navigator.vibrate(Math.max(0, Math.min(100, duration)) | 0);
+        }
+    } catch (e) {
+        Logger.debug('Utils', 'haptic skipped (cosmetic)', e);
+    }
+}
+
 /** Deep clone via structuredClone when available */
 export function deepClone(obj) {
     try {
         if (typeof structuredClone === 'function') {
             return structuredClone(obj);
         }
-    } catch (e) { /* fall through */ }
+    } catch (e) {
+        Logger.debug('Utils', 'structuredClone unavailable — JSON fallback', e);
+    }
     return JSON.parse(JSON.stringify(obj));
 }
 
@@ -110,6 +134,7 @@ const _numberFormatter = (() => {
         // Arabic-friendly grouping with Western (Latin) digits
         return new Intl.NumberFormat('ar-EG-u-nu-latn');
     } catch (e) {
+        Logger.debug('Utils', 'Intl.NumberFormat(ar-EG) unavailable', e);
         return null;
     }
 })();

@@ -18,6 +18,13 @@
  *   'time:offline'   (seconds)    ← تقدّم الغياب
  *   'time:started' / 'time:stopped'
  * ============================================================
+ * سجل التغيير (Work Order):
+ *   MF-03 — حُذف نظام الطاقة (refill أونلاين/أوفلاين وحدث energy:refilled).
+ *   MF-11 — tick يتوقف عند إخفاء الصفحة (بطارية)، وعند العودة يعوَّض
+ *           الغياب عبر _processOfflineTime() ثم تُعاد مزامنة الساعة.
+ * ============================================================
+ *   MF-11 — لا tick أثناء document.hidden؛ رجوع المستخدم = فحص زمني واحد.
+ *   QA-§1b — كل catch حرج (IDb/Legacy/TX) موسوم Logger.
  */
 
 import { Events } from './EventBus.js';
@@ -25,7 +32,6 @@ import { GameState } from './GameState.js';
 import { readRealClock } from './Calendar.js';
 
 const TICK_RATE = 1000;
-const ENERGY_REFILL_MINUTES = 5;
 
 /** يوم حقيقي كامل — يُصدَّر للتوافق مع أي قارئ قديم. */
 export const DAY_LENGTH_MS = 24 * 60 * 60 * 1000;
@@ -35,12 +41,27 @@ class TimeManager {
         this._interval = null;
         this._lastTick = Date.now();
         this._running = false;
+        this._suspended = false; // MF-11: الصفحة مخفية ⇒ tick نائم
         this._callbacks = new Map();
         this._nextId = 1;
         this._clock = readRealClock(new Date());
         this._lastMinuteKey = -1;
         this._lastDateKey = '';
         this._lastSeason = '';
+
+        /*
+         * MF-11 — بطارية: setInterval كان يكتب GameState كل ثانية حتى
+         * والصفحة مخفية. نوقف العداد عند الإخفاء ونعيده عند الظهور؛
+         * مدة الغياب تعالجها _processOfflineTime() كالمعتاد.
+         */
+        this._onVisibility = () => {
+            if (!this._running) return;
+            if (typeof document !== 'undefined' && document.hidden) {
+                this._suspendTick();
+            } else {
+                this._resumeTick();
+            }
+        };
     }
 
     start() {
@@ -55,23 +76,63 @@ class TimeManager {
         // نزامن الحالة فورًا حتى لا يبدأ الـ HUD بساعة افتراضية قديمة.
         this._syncClockState(true);
 
-        this._interval = setInterval(
-            () => this._tick(),
-            TICK_RATE
-        );
+        if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+            document.addEventListener('visibilitychange', this._onVisibility);
+        }
+
+        if (typeof document !== 'undefined' && document.hidden) {
+            this._suspended = true; // بدأنا والصفحة مخفية — لا عدّاد
+        } else {
+            this._interval = setInterval(
+                () => this._tick(),
+                TICK_RATE
+            );
+        }
 
         Events.emit('time:started');
     }
 
     stop() {
         this._running = false;
+        this._suspended = false;
 
         if (this._interval) {
             clearInterval(this._interval);
             this._interval = null;
         }
 
+        if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+            document.removeEventListener('visibilitychange', this._onVisibility);
+        }
+
         Events.emit('time:stopped');
+    }
+
+    /** MF-11: إيقاف tick أثناء الإخفاء — لا كتابة حالة كل ثانية بلا داعٍ. */
+    _suspendTick() {
+        if (this._suspended) return;
+        this._suspended = true;
+        if (this._interval) {
+            clearInterval(this._interval);
+            this._interval = null;
+        }
+        Events.emit('time:suspended');
+    }
+
+    /** MF-11: عند العودة نعوّض الغياب ثم نعيد العداد والمزامنة فورًا. */
+    _resumeTick() {
+        if (!this._suspended) return;
+        this._suspended = false;
+        this._processOfflineTime();
+        this._lastTick = Date.now();
+        this._syncClockState(true);
+        if (!this._interval) {
+            this._interval = setInterval(
+                () => this._tick(),
+                TICK_RATE
+            );
+        }
+        Events.emit('time:resumed');
     }
 
     isRunning() {
@@ -162,10 +223,7 @@ class TimeManager {
                 elapsedSec
             );
 
-            // Refill energy
-            this._refillEnergyOffline(
-                elapsedMs
-            );
+            // MF-03: كان هنا تعبئة طاقة أوفلاين — حُذف النظام كليًا.
 
             // Animal production
             Events.emit(
@@ -184,52 +242,6 @@ class TimeManager {
             'time.lastTick',
             now
         );
-    }
-
-    _refillEnergyOffline(elapsedMs) {
-        const energyPerMs =
-            1 /
-            (
-                ENERGY_REFILL_MINUTES *
-                60 *
-                1000
-            );
-
-        const energyToAdd =
-            Math.floor(
-                elapsedMs *
-                energyPerMs
-            );
-
-        if (energyToAdd > 0) {
-            const current =
-                GameState.get(
-                    'player.energy'
-                );
-
-            const max =
-                GameState.get(
-                    'player.maxEnergy'
-                );
-
-            const newEnergy =
-                Math.min(
-                    max,
-                    current + energyToAdd
-                );
-
-            GameState.set(
-                'player.energy',
-                newEnergy
-            );
-
-            if (newEnergy > current) {
-                Events.emit(
-                    'energy:refilled',
-                    newEnergy - current
-                );
-            }
-        }
     }
 
     _tick() {
@@ -252,9 +264,6 @@ class TimeManager {
 
         // Active timers
         this._processTimers(now);
-
-        // Energy
-        this._tickEnergy(now);
 
         // الساعة الحقيقية (+ أحداث الدقيقة/الساعة/اليوم/الفصل)
         this._syncClockState(false);
@@ -290,56 +299,6 @@ class TimeManager {
                     'timer:completed',
                     id,
                     timer.data
-                );
-            }
-        }
-    }
-
-    _tickEnergy(now) {
-        const lastRefill =
-            GameState.get(
-                'player.energyLastRefill'
-            );
-
-        const refillInterval =
-            ENERGY_REFILL_MINUTES *
-            60 *
-            1000;
-
-        if (
-            now - lastRefill >=
-            refillInterval
-        ) {
-            const current =
-                GameState.get(
-                    'player.energy'
-                );
-
-            const max =
-                GameState.get(
-                    'player.maxEnergy'
-                );
-
-            if (current < max) {
-                GameState.set(
-                    'player.energy',
-                    current + 1
-                );
-
-                GameState.set(
-                    'player.energyLastRefill',
-                    now
-                );
-
-                Events.emit(
-                    'energy:refilled',
-                    1
-                );
-            } else {
-                // Keep timestamp fresh when energy is full
-                GameState.set(
-                    'player.energyLastRefill',
-                    now
                 );
             }
         }

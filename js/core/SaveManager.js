@@ -3,9 +3,17 @@
  * SaveManager.js — MY FARM 3D
  * Reliable Persistent Save System (IndexedDB Primary + LocalStorage Fallback)
  * ============================================================
+ * سجل التغيير (Work Order):
+ *   MF-01 — استيراد حفظ V1 القديم عند أول إقلاع V2: كشف المفاتيح
+ *           القديمة (localStorage + IndexedDB قديمة) ← نسخة احتياطية
+ *           خام لا تُمس ← ترقية إلى شكل V2 ← حفظ ← تحقق roundtrip.
+ *   MF-03 — حذف مفاتيح الطاقة من الحفوظات القديمة بصمت (R3).
+ * ============================================================
+ *   QA-§1b — الطوابع الزمنية المعطوبة والإيقاف/idb-close كلها تُسجَّل الآن.
  */
 import { Events } from './EventBus.js';
 import { GameState } from './GameState.js';
+import { Logger } from './Logger.js'; // MF-06/R2: لا فشل صامت — المهمة كلها موسومة هنا
 
 const SAVE_CONFIG = Object.freeze({
     key: 'myfarm_save_v2',
@@ -16,6 +24,18 @@ const SAVE_CONFIG = Object.freeze({
     saveId: 'main_save',
     version: 2,
     autoSaveInterval: 20000 // ~20 ثانية (المطلوب في المواصفات)
+});
+
+/*
+ * MF-01 — مفاتيح/قاعدة ما قبل V2. اللاعب القديم الذي يفتح اللعبة على
+ * المفاتيح الجديدة ولا نقرأ هذه كان يرى مزرعة فارغة (فقدان ثقة دائم).
+ */
+const LEGACY_KEYS = Object.freeze({
+    saveCandidates: ['myfarm_save_v1', 'myfarm_save'],
+    dbName: 'MyFarmDB',
+    storeName: 'saves',
+    saveId: 'main_save',
+    backupKey: 'myfarm_v1_backup'
 });
 
 /*
@@ -328,7 +348,18 @@ class SaveManagerService {
 
             jsonString = this._newestPayload(fromIdb, fromLs);
 
-            if (jsonString) {
+            /*
+             * MF-01 — لا حفظ V2؟ قبل إعلان «لعبة جديدة» نبحث عن حفظ V1
+             * القديم ونستورده (نسخة احتياطية ← تطبيع شكل ← مسار الترقية
+             * الحالي عبر _migrate)، ثم نتحقق من القراءة العكسية بعد الحفظ.
+             */
+            let legacyImported = false;
+            if (!jsonString) {
+                jsonString = await this._importLegacySnapshot();
+                legacyImported = !!jsonString;
+            }
+
+            if (jsonString && !legacyImported) {
                 console.log('[SaveManager] Save data loaded.');
             }
 
@@ -375,6 +406,10 @@ class SaveManagerService {
             this._lastSaveTime = payload.meta.timestamp;
             Events.emit('save:loaded', payload.meta);
             console.log('[SaveManager] GameState successfully restored.');
+
+            // MF-01: حفظ فوري بمفاتيح V2 + تحقق roundtrip قبل مغادرة الإقلاع
+            if (legacyImported) this._verifyLegacyRoundtrip();
+
             return true;
         } catch (error) {
             console.error('[SaveManager] Load failed with exception:', error?.message || error);
@@ -391,6 +426,7 @@ class SaveManagerService {
                 const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 return Number(parsed?.meta?.timestamp) || -1;
             } catch (e) {
+                Logger.warn('SaveManager', 'payload timestamp unreadable — ranked as oldest', e);
                 return -1;
             }
         };
@@ -428,6 +464,161 @@ class SaveManagerService {
                 reject(e.target?.error || new Error('Get request failed'));
             };
         });
+    }
+
+    /* ========================================================
+       MF-01 — LEGACY V1 IMPORT (أول إقلاع V2)
+       ======================================================== */
+
+    /**
+     * يبحث عن حفظ V1 (localStorage أولًا ثم IndexedDB القديمة)، يحتفظ
+     * بنسخة خام لا تُمس، ويعيد حمولة مطبَّعة تمر بمسار load() الحالي
+     * (تحقق ← ترقية _migrate ← استعادة). @returns {string|null}
+     */
+    async _importLegacySnapshot() {
+        let raw = null;
+        let foundKey = null;
+
+        for (const key of LEGACY_KEYS.saveCandidates) {
+            try {
+                raw = localStorage.getItem(key);
+            } catch (err) {
+                console.warn(`[SaveManager] Legacy key '${key}' unreadable:`, err?.message || err);
+            }
+            if (raw) { foundKey = key; break; }
+        }
+
+        if (!raw) {
+            raw = await this._readLegacyIndexedDB();
+            if (raw) foundKey = `indexeddb:${LEGACY_KEYS.dbName}`;
+        }
+
+        if (!raw) return null;
+
+        const normalized = this._normalizeLegacyPayload(raw);
+        if (!normalized) {
+            console.warn(`[SaveManager] Legacy save on '${foundKey}' unparseable — leaving untouched.`);
+            return null;
+        }
+
+        // نسخة احتياطية خام — تُكتب مرة واحدة فقط ولا تُطمس أبدًا (R3)
+        try {
+            if (localStorage.getItem(LEGACY_KEYS.backupKey) == null) {
+                localStorage.setItem(LEGACY_KEYS.backupKey, raw);
+                localStorage.setItem(`${LEGACY_KEYS.backupKey}_meta`, JSON.stringify({
+                    sourceKey: foundKey,
+                    backedUpAt: Date.now()
+                }));
+            }
+        } catch (err) {
+            console.warn('[SaveManager] Legacy backup write failed (continuing anyway):', err?.message || err);
+        }
+
+        console.log(`[SaveManager] Legacy save found on '${foundKey}' — importing to v2.`);
+        Events.emit('save:legacy-imported', { sourceKey: foundKey });
+        return JSON.stringify(normalized);
+    }
+
+    /** يقبل حمولة {meta,data} أو حالة خام، ويعيد حمولة صالحة للمسار الحالي. */
+    _normalizeLegacyPayload(raw) {
+        let parsed = null;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (parseErr) {
+            Logger.warn('SaveManager', 'legacy payload is not valid JSON — not importing', parseErr);
+            parsed = null;
+        }
+        if (!parsed || typeof parsed !== 'object') return null;
+
+        let data = parsed.data;
+        let version = Number(parsed?.meta?.version);
+
+        // حالة خام بلا غلاف meta (أقدم نسخة كانت تحفظ الشجرة مباشرة)
+        if (!data || typeof data !== 'object') {
+            if (parsed.player || parsed.farm || parsed.inventory) {
+                data = parsed;
+                version = 1;
+            } else {
+                return null;
+            }
+        }
+        if (!Number.isFinite(version) || version < 1) version = 1;
+
+        const jsonData = JSON.stringify(data);
+        return {
+            meta: {
+                version,
+                timestamp: Number(parsed?.meta?.timestamp) || Date.now(),
+                checksum: this._checksum(jsonData)
+            },
+            data
+        };
+    }
+
+    /**
+     * قاعدة V1 القديمة (IndexedDB). لا نستدعي open() إلا إن كانت القاعدة
+     * موجودة فعلًا عبر databases() — open() يُنشئ قاعدة فارغة لدواعي البحث!
+     * أي خطأ هنا ⇒ null (مسار localStorage يكفي).
+     */
+    _readLegacyIndexedDB() {
+        return new Promise((resolve) => {
+            const idb = (typeof window !== 'undefined') ? window.indexedDB : null;
+            if (!idb || typeof idb.databases !== 'function') { resolve(null); return; }
+
+            idb.databases().then((list) => {
+                const exists = Array.isArray(list) && list.some(d => d?.name === LEGACY_KEYS.dbName);
+                if (!exists) { resolve(null); return; }
+
+                const req = idb.open(LEGACY_KEYS.dbName); // بلا رقم إصدار — أي إصدار موجود
+                req.onsuccess = () => {
+                    const db = req.result;
+                    try {
+                        if (!db.objectStoreNames.contains(LEGACY_KEYS.storeName)) {
+                            db.close(); resolve(null); return;
+                        }
+                        const tx = db.transaction([LEGACY_KEYS.storeName], 'readonly');
+                        const get = tx.objectStore(LEGACY_KEYS.storeName).get(LEGACY_KEYS.saveId);
+                        get.onsuccess = () => { const raw = get.result?.data ?? null; db.close(); resolve(raw); };
+                        get.onerror = () => { db.close(); resolve(null); };
+                    } catch (err) {
+                        console.warn('[SaveManager] Legacy IndexedDB read failed:', err?.message || err);
+                        try {
+                            db.close();
+                        } catch (closeErr) {
+                            Logger.debug('SaveManager', 'legacy IDB close after failed read', closeErr);
+                        }
+                        resolve(null);
+                    }
+                };
+                req.onerror = () => resolve(null);
+                req.onblocked = () => resolve(null);
+            }).catch((legacyOpenErr) => {
+                Logger.warn('SaveManager', 'legacy IndexedDB open threw — no import source', legacyOpenErr);
+                resolve(null);
+            });
+        });
+    }
+
+    /**
+     * تحقق roundtrip بعد الاستيراد: نحفظ بمفاتيح V2 ونقرأ ما كُتب ونطابق
+     * الـ checksum. الفشل يُسجَّل بصوت عالٍ والنسخة الاحتياطية تبقى كما هي.
+     */
+    async _verifyLegacyRoundtrip() {
+        try {
+            const saved = await this.save();
+            if (!saved) throw new Error('v2 save returned false');
+
+            const raw = localStorage.getItem(SAVE_CONFIG.key);
+            const payload = raw ? JSON.parse(raw) : null;
+            if (!this._validatePayload(payload)) throw new Error('v2 payload failed validation');
+            if (!this._validateChecksum(payload).valid) throw new Error('v2 checksum mismatch');
+
+            console.log('[SaveManager] Legacy import roundtrip verified ✔');
+            Events.emit('save:legacy-verified', { timestamp: payload.meta.timestamp });
+        } catch (err) {
+            console.error('[SaveManager] Legacy import roundtrip FAILED (v1 backup remains intact):', err?.message || err);
+            Events.emit('save:legacy-verify-failed', { message: String(err?.message || err) });
+        }
     }
 
     /* ========================================================
@@ -471,7 +662,9 @@ class SaveManagerService {
             this._autoSaveTimer = null;
         }
         this._eventUnsubscribers.forEach((fn) => {
-            try { fn(); } catch {}
+            try { fn(); } catch (unsubErr) {
+                Logger.warn('SaveManager', 'unsubscribe listener failed during stopAutoSave', unsubErr);
+            }
         });
         this._eventUnsubscribers = [];
         this._autoSaveStarted = false;
@@ -561,7 +754,22 @@ class SaveManagerService {
             console.warn('[SaveManager] Migration step failed, keeping saved data as-is:', err);
         }
 
-        return this._fillDefaults(GameState.getDefaultState(), source);
+        const filled = this._fillDefaults(GameState.getDefaultState(), source);
+        return this._stripRetiredKeys(filled);
+    }
+
+    /**
+     * MF-03 — مفاتيح أُسقطت من المنتج تُحذف بصمت من أي حفظ محمَّل:
+     * نظام الطاقة أُزيل كليًا (عدّاد بلا مستهلك)، والدمج العميق في
+     * _fillDefaults كان سيُبقيها حية في الحالة والحفظ الجديدين.
+     */
+    _stripRetiredKeys(data) {
+        if (data?.player && typeof data.player === 'object') {
+            delete data.player.energy;
+            delete data.player.maxEnergy;
+            delete data.player.energyLastRefill;
+        }
+        return data;
     }
 
     /**

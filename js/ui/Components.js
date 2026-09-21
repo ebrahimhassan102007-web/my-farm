@@ -1,8 +1,13 @@
 /**
  * Components.js — Reusable UI Components & Renderers
+ *
+ * سجل التغيير (Work Order):
+ *   MF-04 — كل مواضع icon في البطاقات تُعرض عبر ui/icons.js
+ *           (SVG موحّد) مع بقاء الإيموجي fallback للعناصر غير المرسومة.
  */
 
 import { GameState } from '../core/GameState.js';
+import { iconHTML } from './icons.js';
 
 import {
     CROPS,
@@ -94,7 +99,7 @@ export const Components = {
             >
 
                 <div class="shop-icon">
-                    ${item.icon || '📦'}
+                    ${iconHTML(item.icon, 30)}
                 </div>
 
                 <div class="shop-name">
@@ -180,7 +185,7 @@ export const Components = {
             >
 
                 <div class="item-icon">
-                    ${item.icon || '📦'}
+                    ${iconHTML(item.icon, 30)}
                 </div>
 
                 <div class="item-name">
@@ -285,7 +290,7 @@ export const Components = {
                                     >
 
                                         <span class="item-icon">
-                                            ${item?.icon || '📦'}
+                                            ${iconHTML(item?.icon, 30)}
                                         </span>
 
                                         <span class="item-need">
@@ -419,7 +424,7 @@ export const Components = {
             >
 
                 <div class="m-icon">
-                    ${item?.icon || '📦'}
+                    ${iconHTML(item?.icon, 30)}
                 </div>
 
                 <div class="m-info">
@@ -609,11 +614,7 @@ export const Components = {
                             lang
                         )}"
                     >
-                        ${
-                            crop.stages?.[stage] ||
-                            crop.icon ||
-                            '🌱'
-                        }
+                        ${iconHTML(crop.stages?.[stage] || crop.icon, 26)}
                     </div>
                 `;
 
@@ -763,7 +764,7 @@ export const Components = {
             >
 
                 <div class="animal-icon">
-                    ${animalData.icon || '🐄'}
+                    ${iconHTML(animalData.icon, 30)}
                 </div>
 
                 <div class="animal-hunger-bar">
@@ -830,7 +831,7 @@ export const Components = {
             >
 
                 <div class="building-icon">
-                    ${buildingData.icon || '🏠'}
+                    ${iconHTML(buildingData.icon, 30)}
                 </div>
 
                 ${
@@ -860,7 +861,7 @@ export const Components = {
             >
 
                 <div class="recipe-icon">
-                    ${recipe.icon || '🍞'}
+                    ${iconHTML(recipe.icon, 30)}
                 </div>
 
                 <div class="recipe-name">

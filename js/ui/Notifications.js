@@ -1,5 +1,7 @@
 /**
  * Notifications.js — Toast Notification System
+ * سجل التغيير (Work Order):
+ *   MF-11 — إشعارات «بينما كنت غائبًا» تُبنى الآن على زمن حقيقي متجمّد أثناء الإخفاء.
  */
 
 import { Events } from '../core/EventBus.js';
@@ -197,21 +199,7 @@ class NotificationManager {
             }
         );
 
-        // Energy refilled
-        Events.on(
-            'energy:refilled',
-            (amount) => {
-
-                if (amount > 0) {
-
-                    this.show(
-                        `⚡ +${amount} طاقة`,
-                        'info',
-                        3000
-                    );
-                }
-            }
-        );
+        // MF-03: مُستمع energy:refilled حُذف مع نظام الطاقة بالكامل.
 
         // Building purchased
         Events.on(

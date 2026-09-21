@@ -4,7 +4,14 @@
  * ============================================================
  * Slot lifecycle (per spec P1):
  *   empty → growing (3 visual stages) → ready → empty
- *                                      ↘ withered (unwatered past 2× growTime)
+ *                                      ↘ withered (legacy only — gated OFF)
+ *
+ * سجل التغيير (Work Order):
+ *   MF-02 — الذبول أُزيل من الحلقة الأساسية (قرار Hay Day): المحصول
+ *           الناضج ينتظر اللاعب إلى الأبد ولا لاعب يخسر مزروعاته.
+ *           المسار محفوظ خلف FARMING_CONFIG.witherEnabled (افتراضيًا
+ *           مطفأ) لآلية «غياب طويل» مستقبلية، ومحاصيل الذوبان القديمة
+ *           في الحفوظات تُحيى إلى «ready» عند الترطيب.
  *
  * Persistence: every field's 4 slots live INSIDE `farm.tiles[i].slots`
  * (GameState → SaveManager), so a page refresh restores the crops.
@@ -24,6 +31,7 @@ import {
     ITEMS,
     FERTILIZERS,
     CROP_QUALITIES,
+    FARMING_CONFIG,
     rollCropQuality,
     fertilizerTierByItem
 } from '../data/GameData.js';
@@ -161,18 +169,28 @@ class FarmingSystemService {
             const cropType = CROPS_DEFINITIONS[s.cropType] ? s.cropType : null;
             const fertilizer = FERTILIZERS[s.fertilizer] ? s.fertilizer : 'none';
             const quality = CROP_QUALITIES[s.quality] ? s.quality : null;
+            /*
+             * MF-02 (R3: الحفوظات مقدسة): خانة «ذابلة» في حفظ قديم كانت
+             * تعني خسارة المحصول — مع إطفاء الذبول نُحييها إلى «ready»
+             * (محصول ناضج هدية) بدل أن يرى اللاعب حقلًا ميتًا.
+             */
+            let state = cropType
+                ? (['growing', 'ready', 'withered'].includes(s.state) ? s.state : 'growing')
+                : 'empty';
+            if (state === 'withered' && !FARMING_CONFIG.witherEnabled) {
+                state = 'ready';
+            }
+
             base[i] = {
                 ...base[i],
                 cropType,
                 watered: !!s.watered,
                 plantedAt: Number(s.plantedAt) || 0,
                 readyAt: Number(s.readyAt) || 0,
-                witherAt: Number(s.witherAt) || 0,
+                witherAt: FARMING_CONFIG.witherEnabled ? (Number(s.witherAt) || 0) : 0,
                 fertilizer,
                 quality,
-                state: cropType
-                    ? (['growing', 'ready', 'withered'].includes(s.state) ? s.state : 'growing')
-                    : 'empty'
+                state
             };
         }
         return base;
@@ -247,7 +265,8 @@ class FarmingSystemService {
         slot.cropType = cropDef.id;
         slot.plantedAt = now;
         slot.readyAt = now + growMs;
-        slot.witherAt = now + growMs * 2; // ذبول إن لم تُسقَ
+        // MF-02: لا ذبول في الحلقة الأساسية — 0 يعني «بلا موعد ذبول إطلاقًا».
+        slot.witherAt = FARMING_CONFIG.witherEnabled ? now + growMs * 2 : 0;
         slot.watered = false;
         slot.quality = null;              // تُسحب عند الحصاد من مرتبة السماد
 
@@ -264,7 +283,7 @@ class FarmingSystemService {
 
         slot.watered = true;
         slot.readyAt -= 3500;
-        slot.witherAt = 0; // الري يحمي من الذبول
+        slot.witherAt = 0; // الري يحمي من الذبول (حين تُفعَّل الميزة مستقبلًا)
 
         this._persist(fieldId);
         Events.emit('crop:watered', { fieldId, slotIndex, slot });
@@ -500,11 +519,12 @@ class FarmingSystemService {
                 }
 
                 /*
-                 * الذبول: محصول لم يُروَ وتركه اللاعب حتى 2× مدة النمو
-                 * يفسد — ويسري ذلك على الناضج غير المحصود كذلك
-                 * (الري هو ما يحميه: watered ⇒ witherAt = 0).
+                 * MF-02 — الذبول خارج الحلقة الأساسية (FARMING_CONFIG.witherEnabled
+                 * الافتراضي مطفأ). المسار محفوظ لآلية «غياب طويل» مستقبلية:
+                 * محصول لم يُروَ حتى 2× مدة النمو يفسد — ويسري على الناضج كذلك.
                  */
                 if (
+                    FARMING_CONFIG.witherEnabled &&
                     (slot.state === 'growing' || slot.state === 'ready') &&
                     !slot.watered &&
                     slot.witherAt > 0 &&
@@ -531,6 +551,21 @@ class FarmingSystemService {
         }
         this._lastGrowthCheck = 0;
         this.updateGrowth();
+    }
+
+    /**
+     * MF-10 — درس أول ٦٠ ثانية: قمح اللاعب الجديد الأول يُسرَّع ليُنضج
+     * بعد `totalMs` من الآن (افتراضي دقيقة). لا يمس أي خانة أخرى،
+     * ويعيد false إن لم تكن الخانة في طور النمو (لا وعود كاذبة).
+     */
+    accelerateForTutorial(fieldId, slotIndex, totalMs = 60000) {
+        const slot = this.getOrCreateSlots(fieldId)[slotIndex];
+        if (!slot || slot.state !== 'growing') return false;
+
+        slot.readyAt = Date.now() + Math.max(1000, Number(totalMs) || 60000);
+        slot.witherAt = 0; // MF-02: محصول الدرس لا يذبل مثل كل المحاصيل
+        this._persist(fieldId);
+        return true;
     }
 
     /**
