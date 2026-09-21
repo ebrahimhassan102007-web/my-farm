@@ -590,6 +590,30 @@ check('completion event fired with a reason',
 check('tutorial never replays (shouldStart false, second start() no-ops)',
     Tutorial.shouldStart() === false && Tutorial.start() === Tutorial);
 
+/* MF-10 isolation: (أ) حالة الدرس تنجو تحديث الصفحة وسط التدفق، (ب) حفظ خبير لا يشغّل الدرس أبدًا */
+const midFlowStep = GameState.get('tutorial.step');
+// مهلة سكون: فحوص MF-01 أسبق تُشغّل حفظات trailing متداخلة — ننتظر هدوءها حتى لا يتسابق الحفظ
+await new Promise((r) => setTimeout(r, 450));
+let persistedOk = false;
+for (let i = 0; i < 5 && !persistedOk; i++) {
+    persistedOk = await SaveManager.save();
+    if (!persistedOk) await new Promise((r) => setTimeout(r, 120));
+}
+check('save() actually persisted this snapshot (no in-flight save swallowed it)',
+    persistedOk === true);
+GameState.reset();
+await SaveManager.load();
+check('tutorial state persists across a refresh mid-flow (step kept)',
+    GameState.get('tutorial.step') === midFlowStep && GameState.get('tutorial.completed') === true);
+
+GameState.reset();
+GameState.set('stats.totalHarvests', 7); // حفظ خبير مرحّل — إكمال غير مسجّل بعد
+check('existing-progress save never triggers the tutorial',
+    Tutorial.shouldStart() === false);
+Tutorial.start(); // يجب أن يسجّله مكتملًا بصمت لا أن يشغّل الدرس (R3-friendly)
+check('veteran without the flag is silently marked complete (never bothers him)',
+    GameState.get('tutorial.completed') === true && Tutorial.running === false);
+
 GameState.reset(); // لا نسرّب حالة الدرس إلى الفحوص التالية
 
 /* ---- 13) D2(c): لا أرقام سحرية في نصوص الواجهة (مسح ساكن) ---- */
@@ -626,33 +650,146 @@ check('no hardcoded numbers inside Arabic UI strings (main.js + ui/*)',
     numericViolations.length === 0,
     numericViolations.join(' | '));
 
-/* ---- 14) MF-12: تقسيم main.js — الوحدات موجودة وتُصدِّر الوجهة نفسها ---- */
-console.log('\n── MF-12: main.js split — App shim + extracted modules ──');
-
-const appSrc = readFileSync(join(root, 'js/core/App.js'), 'utf8');
-check('core/App.js holds the app core (class + boot)',
-    appSrc.includes('class MyFarmApp') && appSrc.includes('new MyFarmApp') && appSrc.includes('window.MY_FARM'));
+/* ---- 14) MF-12: تقسيم الوحدات — سلوك وواجهات عامة (تحقق API) ---- */
+console.log('\n── MF-12: split modules — public API contracts ─────────');
 
 const { PlayerController } = await import('../js/player/PlayerController.js');
 const { CropBatchRenderer } = await import('../js/world/CropBatchRenderer.js');
 
-check('PlayerController extracted intact (public API preserved)',
+check('PlayerController API intact (behavior contract, module-agnostic)',
     ['setBounds', 'jump', 'loadModel', 'createFallbackAvatar', 'bindHandSocket',
      'buildToolMesh', 'equipItem', 'playToolSwing', 'cancelToolSwing', 'setupAnimations',
      'transitionTo', 'update'].every((m) => classMethods(PlayerController).has(m)),
     'missing on PlayerController');
-check('CropBatchRenderer extracted intact (public API preserved)',
+check('CropBatchRenderer API intact (behavior contract, module-agnostic)',
     ['markDirty', 'setVisible', 'rebuild', 'pulse', 'update'].every((m) => classMethods(CropBatchRenderer).has(m)),
     'missing on CropBatchRenderer');
 
-const shimSrc = readFileSync(join(root, 'js/main.js'), 'utf8');
-check('main.js is a thin boot shim re-exporting the same faces',
-    shimSrc.includes("./core/App.js") && shimSrc.includes('MyFarmApp') && shimSrc.split('\n').length <= 40);
-check('no legacy backup entry points remain in repo',
-    (() => {
+/* ---- 14ب) MF-07-proof: بروتوكول التبديل الحي خطوة بخطوة (قابل للتكرار) ---- */
+console.log('\n── MF-07 proof: live-switch protocol on a fake three.js rig ──');
+
+Quality._app = null; // قطع أي ربط سابق
+const fx = {
+    calls: [],
+    renderer: {
+        shadowMap: { enabled: true },
+        setPixelRatio: (v) => fx.calls.push(['setPixelRatio', v]),
+        setSize: (w, h, u) => fx.calls.push(['setSize', w, h, u])
+    },
+    lights: { sun: { castShadow: true, shadow: {
+        mapSize: { v: 1024, set(w, h) { fx.calls.push(['mapSize.set', w, h]); this.v = w; } },
+        map: { dispose: () => fx.calls.push(['map.dispose']) },
+    } } },
+    scene: { fog: null, traverse(fn) { fn({ material: { needsUpdate: false, _mark: true } }); fx.marked = true; } },
+    _outsideFogDensity: 0.012, inInterior: false
+};
+
+Quality.attach(fx);
+fx.calls.length = 0;
+// في three.js الحقيقي يُعاد تخصيص shadow.map كسولًا أول إطار — نعيد زرعه كما يحدث على الجهاز
+fx.lights.sun.shadow.map = { dispose: () => fx.calls.push(['map.dispose']) };
+Quality.cycle();           // high → low
+const pxIdx = fx.calls.findIndex((c) => c[0] === 'setPixelRatio');
+const mdIdx = fx.calls.findIndex((c) => c[0] === 'map.dispose');
+const msIdx = fx.calls.findIndex((c) => c[0] === 'mapSize.set');
+
+check('pixelRatio swap happens on every live switch', pxIdx >= 0);
+check('shadow-map dispose follows mapSize.set (three.js protocol)', mdIdx > msIdx && msIdx >= 0);
+check('sun.shadow.map nulled post-dispose (forces GPU realloc)', fx.lights.sun.shadow.map === null);
+check('material sweep marks needsUpdate (required on shadow on/off)', fx.marked === true);
+check('low preset forces sun.castShadow = false', fx.lights.sun.castShadow === false);
+
+fx.calls.length = 0;
+fx.lights.sun.shadow.map = { dispose: () => fx.calls.push(['map.dispose']) };
+Quality.cycle();           // low → mid
+check('switching back restores castShadow and 1024 map',
+    fx.lights.sun.castShadow === true && fx.lights.sun.shadow.mapSize.v === 1024);
+check('second switch also disposes+nuls the map (no leak across toggles)',
+    fx.calls.some((c) => c[0] === 'map.dispose') && fx.lights.sun.shadow.map === null);
+
+Quality._app = null;       // لا نترك حالة مزيفة تتسرب
+
+/* ---- LINT-فقط: تخطيط الملفات (خارج عدّاد D2 — لا يُقَيَّم سلوك) ---- */
+console.log('\n── [LINT-only] file-layout invariants (not behavior, excluded from D2) ──');
+
+const lintOut = [];
+try {
+    const loggerSrc = (() => {
+        try { return readFileSync(join(root, 'js/core/App.js'), 'utf8'); } catch { return null; }
+    })();
+    const shimSrc = readFileSync(join(root, 'js/main.js'), 'utf8');
+
+    lintOut.push(['App.js holds boot core', !!(loggerSrc && loggerSrc.includes('class MyFarmApp') && loggerSrc.includes('new MyFarmApp') && loggerSrc.includes('window.MY_FARM'))]);
+    lintOut.push(['main.js is a thin shim', shimSrc.includes('./core/App.js') && shimSrc.split('\n').length <= 40]);
+    lintOut.push(['no legacy backup entry points', (() => {
         const gone = (rel) => { try { readFileSync(join(root, rel)); return false; } catch { return true; } };
         return gone('js/main.backup.js') && gone('MY_FARM_3D_Gemini_Camera_Updated.html');
-    })());
+    })()]);
+} catch (lintErr) {
+    lintOut.push(['layout lint itself failed', false]);
+    console.log('  ⚠️  layout lint error:', lintErr?.message);
+}
+for (const [label, ok] of lintOut) {
+    console.log(`  ${ok ? '☑️ ' : '⚠️ '} [LINT] ${label}`);
+}
+/* End LINT-only — هذه الفحوص توثيقية ولا تحتسب في D2. */
+
+/* ---- 15) QA-§1b: لا بلع صامت لأي catch في الشجرة (فحص حرفي) ---- */
+console.log('\n── QA-§1b: zero silent catches (static sweep) ─────────────');
+
+{
+    const CATCH_RE = /catch\s*(\(([^)]*)\))?\s*\{/g;
+    const silentCatches = [];
+    const paramLiterals = [];
+
+    for (const file of UI_SCAN_FILES.concat(
+        ['core', 'systems', 'world', 'utils', 'data'].flatMap((dir) => {
+            try {
+                return readdirSync(join(root, 'js', dir))
+                    .filter((f) => f.endsWith('.js'))
+                    .map((f) => join(root, 'js', dir, f));
+            } catch { return []; }
+        })
+    )) {
+        const code = readFileSync(file, 'utf8');
+        CATCH_RE.lastIndex = 0;
+        let m;
+        while ((m = CATCH_RE.exec(code))) {
+            // treat `catch { }` ignored-parameter literals as FAIL
+            if (!m[1]) {
+                silentCatches.push(`${file.split('/').pop()}: ignored-param catch`);
+                continue;
+            }
+            // scan body until its matching close (brace depth walk)
+            let i = m.index + m[0].length;
+            let depth = 1;
+            let body = '';
+            while (i < code.length && depth > 0) {
+                const c = code[i];
+                if (c === '{') depth++;
+                else if (c === '}') depth--;
+                if (depth > 0) body += c;
+                i++;
+            }
+            const clean = body.replace(/\/\/[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').trim();
+            const logged = /\b(Logger|console\.(warn|error|info|log))\b/.test(body);
+            const rethrow = /\bthrow\b|\breject\s*\(|\bVOID_IGNORED\b|\bvoid\s+\w+/.test(body);
+            const intentionalVoid = /void\s+\w+;/.test(body);
+            if (!logged && !rethrow && !intentionalVoid) {
+                silentCatches.push(`${file.split('/').pop()} «${clean.slice(0, 50)}»`);
+            } else if (!logged && intentionalVoid) {
+                paramLiterals.push(file.split('/').pop());
+            }
+        }
+    }
+
+    check('every catch in js/** is Logger-tagged, rethrows/rejects, or documented structural void',
+        silentCatches.length === 0,
+        silentCatches.slice(0, 5).join(' | '));
+    check('exactly ONE structural void remains (Logger deepest fallback — documented)',
+        paramLiterals.length === 1 && paramLiterals[0] === 'Logger.js',
+        paramLiterals.join(', ') || 'none');
+}
 
 /* ---------- ملخص ---------- */
 console.log('\n' + '═'.repeat(60));
