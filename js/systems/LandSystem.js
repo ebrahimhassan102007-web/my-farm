@@ -7,6 +7,7 @@
  *   MF-05 — سعر الحقل وافتراضي الكوينز من مصدر واحد (LAND_CONFIG +
  *           ECONOMY.startingCoins) — لا أرقام سحرية في النظام.
  *   MF-06 — كل catch صامت أصبح تحذيرًا موسومًا عبر Logger (R2).
+ *   QA-§1b — قراءة farm.tiles تسجّل فشل الشكل في Logger بدل الصمت.
  */
 import { Events } from '../core/EventBus.js';
 import { GameState } from '../core/GameState.js';
@@ -43,6 +44,7 @@ class LandSystemService {
         try {
             stateTiles = GameState.get('farm.tiles');
         } catch (e) {
+            Logger.warn('Land', 'GameState farm.tiles unreadable — treating as unhydrated', e);
             stateTiles = [];
         }
 

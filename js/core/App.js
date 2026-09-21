@@ -184,7 +184,7 @@ class MyFarmApp {
     setBootProgress(percent) {
         try {
             document.documentElement.setAttribute('data-farm-boot', String(Math.round(percent)));
-        } catch (e) { /* اللودر غير موجود — نتجاهل */ }
+        } catch (e) { Logger.debug('Boot', 'loader progress attribute not present', e); }
     }
 
     /** الوسائط بين الأنظمة والـ Toast: أي نظام يرجع {success,error} يُعرض بالعربية. */
@@ -229,7 +229,7 @@ class MyFarmApp {
             // صبغة الفصل من أول إطار (تُعاد عند حدث time:season)
             try {
                 this.environment.setSeason(Time.getClock().season);
-            } catch (e) { /* ديكور — لا يكسر الإقلاع */ }
+            } catch (e) { Logger.warn('World', 'initial season coating failed', e); }
 
             /*
              * 🏠 مشهد داخل البيت — يُبنى مخفيًا عند الإقلاع حتى يكون
@@ -433,7 +433,7 @@ class MyFarmApp {
             Events.on('time:season', (season) => {
                 try {
                     this.environment?.setSeason?.(season);
-                } catch (e) { /* ديكور */ }
+                } catch (e) { Logger.warn('World', 'season recoat failed', e); }
             });
 
             /*
@@ -1217,7 +1217,7 @@ class MyFarmApp {
         this.environment?.animals?.syncReadyStates?.(stateById);
         try {
             this.environment?.animals?.setSeasonCoat?.(Time.getClock().season);
-        } catch (e) { /* ديكور */ }
+        } catch (e) { Logger.warn('World', 'animal season coat failed', e); }
     }
 
     interactWithAnimal(target) {
@@ -2171,7 +2171,7 @@ class MyFarmApp {
             try {
                 this.environment?.buildings?.setNightFactor?.(nightFactor);
                 this.environment?.animals?.setNightFactor?.(nightFactor);
-            } catch (e) { /* المصابيح ديكور — لا تكسر الإقلاع */ }
+            } catch (e) { Logger.warn('World', 'night lamps/coat sync failed', e); }
         }
 
         // --- الصبغة الموسمية (عند تغيّر الفصل فقط) ---
@@ -2181,7 +2181,7 @@ class MyFarmApp {
                 this.environment?.setSeason?.(season);
                 sky?.setSeason?.(season);
             }
-        } catch (e) { /* الصبغة ديكور — لا تكسر الإقلاع */ }
+        } catch (e) { Logger.warn('World', 'seasonal tint apply failed', e); }
 
         // --- ساعة الـ HUD: وقت + تاريخ حقيقي + فصل ثنائي اللغة ---
         if (typeof this.hud?.applyClock === 'function') {

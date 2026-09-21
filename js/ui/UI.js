@@ -16,6 +16,7 @@
  *   MF-06 — زر «نسخ تقرير تشخيص» ينسخ حلقة Logger (آخر ٥٠ حدثًا).
  *   MF-07 — صف «جودة الرسوم» يبدّل low/mid/high حيًّا عبر QualityScaler.
  * ============================================================
+ *   QA-§1b — فشل قراءة لوحات الحيوانات/المخازن/الحفظ = سجل Logger + رسالة مفهومة.
  */
 import { Components } from './Components.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
@@ -738,6 +739,7 @@ export class GameUI {
         try {
             catalog = AnimalSystem.getCatalog() || [];
         } catch (e) {
+            Logger.warn('UI', 'animal catalog read failed', e);
             body.innerHTML = '<div class="hud-sheet-empty">تعذّر قراءة قائمة الحيوانات</div>';
             return;
         }
@@ -885,6 +887,7 @@ export class GameUI {
             try {
                 slots = FarmingSystem.getOrCreateSlots(field.id) || [];
             } catch (e) {
+                Logger.debug('UI', `slots read skipped for ${field.id}`, e);
                 return;
             }
 
@@ -963,6 +966,7 @@ export class GameUI {
         try {
             snap = StorageSystem.snapshot();
         } catch (e) {
+            Logger.warn('UI', 'storage state read failed', e);
             body.innerHTML = '<div class="hud-sheet-empty">تعذّر قراءة حالة المخازن</div>';
             return;
         }
@@ -1186,7 +1190,7 @@ export class GameUI {
 
             const storageRow = this._menuRow('⬆️ ترقية المخازن', 'فتح', true, () => this.open('storage', 'silo'));
             body.appendChild(storageRow);
-        } catch (e) { /* المخازن اختيارية في القائمة */ }
+        } catch (e) { Logger.debug('UI', 'menu storage note unavailable', e); }
 
         const soundRow = this._menuRow('🔊 المؤثرات الصوتية', sfx ? 'مفعّلة' : 'متوقفة', sfx, () => {
             GameState.set('settings.sfx', !sfx);
@@ -1214,6 +1218,7 @@ export class GameUI {
                 SaveManager.save();
                 this._success('💾 تم حفظ المزرعة');
             } catch (err) {
+                Logger.warn('UI', 'manual save call failed (autosave will retry)', err);
                 this._error('تعذّر الحفظ الآن — سنحاول تلقائيًا');
             }
         });

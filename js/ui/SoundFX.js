@@ -6,7 +6,10 @@
  * Respects GameState: settings.sfx
  * سجل التغيير (Work Order):
  *   MF-07 — يتبع مستوى الجودة عبر QualityScaler (خفض أصوات على low).
+ *   QA-§1b — أوكسجين الصوت التجميلي: ٤ مسارات fallback صارمة التسجيل (debug).
  */
+import { Logger } from '../core/Logger.js';
+
 
 export class SoundFX {
     constructor({ gameState } = {}) {
@@ -19,6 +22,7 @@ export class SoundFX {
             const s = this._gameState?.get?.('settings.sfx');
             return s !== false;
         } catch (e) {
+            Logger.debug('SoundFX', 'settings.sfx unreadable — defaulting to enabled', e);
             return true;
         }
     }
@@ -32,6 +36,7 @@ export class SoundFX {
             try {
                 this._ctx = new AC();
             } catch (e) {
+                Logger.debug('SoundFX', 'AudioContext construction failed', e);
                 return null;
             }
         }
@@ -80,7 +85,9 @@ export class SoundFX {
     _playTone(options) {
         if (!this._enabled()) return;
         const ctx = this._ctxInstance(); if (!ctx) return;
-        try { this._tone(ctx, options); } catch (e) { /* cosmetic */ }
+        try {
+            this._tone(ctx, options);
+        } catch (e) { Logger.debug('SoundFX', '_playTone dropped (cosmetic)', e); }
     }
 
     play(name) {
@@ -114,7 +121,9 @@ export class SoundFX {
                 default:
                     this._tone(ctx, { freq: 440, type: 'sine', dur: 0.1, vol: 0.12 });
             }
-        } catch (e) { /* audio is cosmetic — never crash the game over it */ }
+        } catch (e) {
+            Logger.debug('SoundFX', `play(${name}) dropped (cosmetic)`, e);
+        }
     }
 }
 

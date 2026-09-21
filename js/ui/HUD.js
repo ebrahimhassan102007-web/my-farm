@@ -23,10 +23,12 @@
  *           ui/icons.js (خط OS لم يعد يقرر شكلها)، والإيموجي fallback.
  *   MF-13 — نبضة squash & stretch على صومعة/حظيرة الـ HUD عند وصول محصول.
  * ============================================================
+ *   QA-§1b — عدّاد المخازن يسجّل تعذّر اللقطة بدل الإخفاء الصامت.
  */
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { StorageSystem } from '../systems/StorageSystem.js';
 import { iconHTML } from './icons.js';
+import { Logger } from '../core/Logger.js';
 import { xpForLevel } from '../systems/XPSystem.js';
 
 const SEASONS_AR = {
@@ -569,6 +571,7 @@ export class HUD {
     try {
       snap = StorageSystem.snapshot();
     } catch (e) {
+      Logger.debug('HUD', 'storage pill sync skipped (storage not ready)', e);
       return;
     }
 

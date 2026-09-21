@@ -13,6 +13,7 @@
  *   Logger.ring()   — نسخة من آخر ٥٠ حدثًا ({t, level, tag, msg}).
  *   Logger.report() — نص جاهز للنسخ إلى الحافظة (تقرير تشخيص).
  * ============================================================
+ *   QA-§1b — الملاذ الأخير موثّق بحذر معلّق (لا رمي أبدًا — هذا هو العقد).
  */
 
 const RING_SIZE = 50;
@@ -58,10 +59,15 @@ class LoggerService {
             else if (level === 'info') console.info(line, ...args);
             else console.log(line, ...args);
         } catch (fatalLoggingErr) {
-            // الملاذ الأخير: سطر واحد خام — لا رمي خارج المسجِّل إطلاقًا.
+            // QA-§1b: الملاذ الأخير للـ Logger نفسه موثّق (لا رمي أبدًا = العقد الهيكلي).
+            // لا يمكنه استدعاء Logger (تكرار أبدي) — console خام فقط، والفشل حتى هنا
+            // يعني بيئة بلا وحدة تحكم إطلاقًا — صمت بنيوي مقصود ومُعلَّم.
             try {
                 console.warn('[Logger] Logging pipeline fallback:', fatalLoggingErr?.message || fatalLoggingErr);
-            } catch { /* لا شيء أعمق من هذا */ }
+            } catch (deepestErrIgnored) {
+                // بيئة بلا console: لا قناة تسجيل متاحة فيزيائيًا — لا شيء يُفقَد.
+                void deepestErrIgnored;
+            }
         }
     }
 

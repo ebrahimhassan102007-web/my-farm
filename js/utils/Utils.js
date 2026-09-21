@@ -7,7 +7,10 @@
  *   uuid, randPick, randInt, randFloat, t, formatNumber, formatTime
  * سجل التغيير (Work Order):
  *   MF-13 — haptic() محروس (iOS يتجاهل navigator.vibrate بصمت).
+ *   QA-§1b — ٪100 من fallback الهويات/النسخ/التهيئة مسجَّلة عبر Logger.debug.
  */
+import { Logger } from '../core/Logger.js';
+
 
 /* ============================================================
    IDENTIFIERS
@@ -26,7 +29,9 @@ export function uuid() {
         ) {
             return globalThis.crypto.randomUUID();
         }
-    } catch (e) { /* fall through */ }
+    } catch (e) {
+        Logger.debug('Utils', 'crypto.randomUUID unavailable — manual fallback', e);
+    }
 
     return (
         'id-' +
@@ -104,8 +109,7 @@ export function haptic(duration = 12) {
             navigator.vibrate(Math.max(0, Math.min(100, duration)) | 0);
         }
     } catch (e) {
-        // الاهتزاز لمسة جمالية — فشله لا يستحق أكثر من لا-شيء مشروح
-        console.debug('[Utils] haptic skipped:', e?.message || e);
+        Logger.debug('Utils', 'haptic skipped (cosmetic)', e);
     }
 }
 
@@ -115,7 +119,9 @@ export function deepClone(obj) {
         if (typeof structuredClone === 'function') {
             return structuredClone(obj);
         }
-    } catch (e) { /* fall through */ }
+    } catch (e) {
+        Logger.debug('Utils', 'structuredClone unavailable — JSON fallback', e);
+    }
     return JSON.parse(JSON.stringify(obj));
 }
 
@@ -128,6 +134,7 @@ const _numberFormatter = (() => {
         // Arabic-friendly grouping with Western (Latin) digits
         return new Intl.NumberFormat('ar-EG-u-nu-latn');
     } catch (e) {
+        Logger.debug('Utils', 'Intl.NumberFormat(ar-EG) unavailable', e);
         return null;
     }
 })();

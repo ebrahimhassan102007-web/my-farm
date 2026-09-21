@@ -1,9 +1,11 @@
 /**
  * MarketSystem.js — AI Market
  * Offline-ready market with AI sellers and buyers.
+ *   QA-§1b — رمية مكافأة الكشك الفاشلة تُسجَّل debug بدل catch صامت.
  */
 
 import { Events } from '../core/EventBus.js';
+import { Logger } from '../core/Logger.js';
 import { GameState } from '../core/GameState.js';
 import { ITEMS, ECONOMY } from '../data/GameData.js';
 import { StorageSystem } from './StorageSystem.js';
@@ -472,7 +474,7 @@ class MarketSystemService {
                  */
                 try {
                     StorageSystem.rollSupplyDrop('stallSale');
-                } catch (e) { /* المكافأة إضافية — لا تكسر البيع */ }
+                } catch (e) { Logger.debug('Market', 'stall supply-dice roll skipped', e); }
 
                 continue;
             }

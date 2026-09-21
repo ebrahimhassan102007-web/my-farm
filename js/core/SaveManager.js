@@ -9,9 +9,11 @@
  *           خام لا تُمس ← ترقية إلى شكل V2 ← حفظ ← تحقق roundtrip.
  *   MF-03 — حذف مفاتيح الطاقة من الحفوظات القديمة بصمت (R3).
  * ============================================================
+ *   QA-§1b — الطوابع الزمنية المعطوبة والإيقاف/idb-close كلها تُسجَّل الآن.
  */
 import { Events } from './EventBus.js';
 import { GameState } from './GameState.js';
+import { Logger } from './Logger.js'; // MF-06/R2: لا فشل صامت — المهمة كلها موسومة هنا
 
 const SAVE_CONFIG = Object.freeze({
     key: 'myfarm_save_v2',
@@ -424,6 +426,7 @@ class SaveManagerService {
                 const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 return Number(parsed?.meta?.timestamp) || -1;
             } catch (e) {
+                Logger.warn('SaveManager', 'payload timestamp unreadable — ranked as oldest', e);
                 return -1;
             }
         };
@@ -519,7 +522,12 @@ class SaveManagerService {
     /** يقبل حمولة {meta,data} أو حالة خام، ويعيد حمولة صالحة للمسار الحالي. */
     _normalizeLegacyPayload(raw) {
         let parsed = null;
-        try { parsed = JSON.parse(raw); } catch { parsed = null; }
+        try {
+            parsed = JSON.parse(raw);
+        } catch (parseErr) {
+            Logger.warn('SaveManager', 'legacy payload is not valid JSON — not importing', parseErr);
+            parsed = null;
+        }
         if (!parsed || typeof parsed !== 'object') return null;
 
         let data = parsed.data;
@@ -574,13 +582,20 @@ class SaveManagerService {
                         get.onerror = () => { db.close(); resolve(null); };
                     } catch (err) {
                         console.warn('[SaveManager] Legacy IndexedDB read failed:', err?.message || err);
-                        try { db.close(); } catch { /* إغلاق فاشل غير مؤثر */ }
+                        try {
+                            db.close();
+                        } catch (closeErr) {
+                            Logger.debug('SaveManager', 'legacy IDB close after failed read', closeErr);
+                        }
                         resolve(null);
                     }
                 };
                 req.onerror = () => resolve(null);
                 req.onblocked = () => resolve(null);
-            }).catch(() => resolve(null));
+            }).catch((legacyOpenErr) => {
+                Logger.warn('SaveManager', 'legacy IndexedDB open threw — no import source', legacyOpenErr);
+                resolve(null);
+            });
         });
     }
 
@@ -647,7 +662,9 @@ class SaveManagerService {
             this._autoSaveTimer = null;
         }
         this._eventUnsubscribers.forEach((fn) => {
-            try { fn(); } catch {}
+            try { fn(); } catch (unsubErr) {
+                Logger.warn('SaveManager', 'unsubscribe listener failed during stopAutoSave', unsubErr);
+            }
         });
         this._eventUnsubscribers = [];
         this._autoSaveStarted = false;
