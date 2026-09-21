@@ -25,8 +25,8 @@ npm i            # يثبّت three محليًا للاختبار الرأسي �
 
 npm test              # smoke   — منطق اللعب كاملًا (180 فحصًا)
 npm run test:world    # world   — بناء العالم 3D بلا رأس + dispose (67 فحصًا)
-npm run test:contracts# contracts — عقود API + ترقية الحفظ + الاقتصاد (79 فحصًا)
-npm run test:all      # الثلاثة معًا — بوابة الدمج (326 فحصًا)
+npm run test:contracts# contracts — عقود API + ترقية الحفظ + الاقتصاد (89 فحصًا)
+npm run test:all      # الثلاثة معًا — بوابة الدمج (336 فحصًا)
 ```
 
 `package.json` موجود **فقط** لأجل الاختبارات الرأسية — اللعبة نفسها لا تستخدمه.

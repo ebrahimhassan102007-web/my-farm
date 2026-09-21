@@ -53,4 +53,19 @@
 
 ### بوابة الجودة
 
-`npm run test:all` — SMOKE 180 + WORLD 67 + CONTRACTS 79 = 326 فحصًا أخضر.
+`npm run test:all` — SMOKE 180 + WORLD 67 + CONTRACTS 89 = 336 فحصًا أخضر.
+
+### QA Round (2026-09-21، نفس اليوم)
+
+- **§1b** فحص حرفي للبلع الصامت: ١٢ ملفًا ← كل catch إمّا Logger-musom
+  (Logger-tagged) أو reject/throw أو «void بنيوي موثّق» (Logger deepest
+  fallback). عقد تلقائي جديد: contracts «QA-§1b zero silent catches».
+- **§2** فحوص تخطيط الملفات (shim/App/النسخ القديمة) خرجت من عدّاد D2 إلى
+  قسم LINT توثيقي يعمل بـ glob — العقود السلوكية (API) بقيت في العدّاد.
+- **§3** إثبات بروتوكول MF-07 الحي: اختبار rig زائف يؤكّد ترتيب
+  mapSize.set ← map.dispose ← null ← needsUpdate sweep في كل تبديل (بلا تسريب).
+- **§4** إثبات عزل MF-10: قمح الدرس = `slot.readyAt` فقط (growTime في
+  CROPS لم يُمس — 10/16/22/28 как هي)، وحالة الدرس تنجو تحديث الصفحة وسط
+  التدفق، وحفظ الخبير لا يشغّلها أبدًا.
+
+عدّاد contracts بعد جولة QA: **89 فحصًا + 3 LINT توثيقية**.
