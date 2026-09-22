@@ -40,6 +40,12 @@ globalThis.window = globalThis.window || {
 };
 globalThis.document = globalThis.document || {
     hidden: false,
+    /*
+     * VP-16 يستورد js/core/App.js (الذي يبني التطبيق ويحاول الإقلاع إن
+     * كان المستند جاهزًا). 'loading' تُبقي الإقلاع معلّقًا على
+     * DOMContentLoaded فلا نحتاج WebGL في Node.
+     */
+    readyState: 'loading',
     addEventListener() {}, removeEventListener() {},
     createElement: () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {} }, appendChild() {}, setAttribute() {} }),
     getElementById: () => null, querySelector: () => null,
@@ -50,6 +56,7 @@ if (typeof globalThis.navigator === 'undefined') {
 }
 
 /* ---------- الوحدات الحقيقية ---------- */
+const THREE = await import('three');
 const { GameState } = await import('../js/core/GameState.js');
 const { Events } = await import('../js/core/EventBus.js');
 const { Time } = await import('../js/core/TimeManager.js');
@@ -442,10 +449,93 @@ section('VP-15 · POLISH-02 — docs match the tree');
         changelog.includes('POLISH-01') && changelog.includes('POLISH-03'));
 }
 
+/* ============================================================
+   VP-16 · PHASE 0 / BUG-001: دورة النهار/الليل تعمل بلا انهيار
+   ============================================================ */
+section('VP-16 · BUG-001 — day/night tick resolves every season constant');
+
+{
+    /*
+     * الحارس الحقيقي هنا تنفيذي لا نصّي: نُنشئ التطبيق فعلًا ونستدعي
+     * `applyDayNight()` لكل فصل. عطب BUG-001 كان ReferenceError يظهر
+     * على أول نبضة ليل/نهار، فلا شيء أقوى من تشغيل نفس المسار.
+     * (App.js لا يلمس DOM/WebGL في الـ constructor، وdocument.readyState
+     * مضبوط على 'loading' فيمنع محاولة الإقلاع عند الاستيراد.)
+     */
+    const { MyFarmApp } = await import('../js/core/App.js');
+
+    const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
+    const EXPECTED_TINT = { spring: 0xfff4e0, summer: 0xfff6e4, autumn: 0xffdfae, winter: 0xe9f1ff };
+
+    const makeApp = (season, hour) => {
+        const realGetClock = Time.getClock;
+        Time.getClock = () => ({
+            hours: hour, minutes: 0, hourFloat: hour, day: 1,
+            season, sunFactor: 0.9
+        });
+
+        const app = new MyFarmApp();
+        const sun = new THREE.DirectionalLight(0xffffff, 1);
+        sun.target = new THREE.Object3D();
+        app.lights = {
+            sun,
+            ambient: new THREE.HemisphereLight(0xffffff, 0x000000, 1),
+            fill: new THREE.DirectionalLight(0xffffff, 1)
+        };
+        app.scene = new THREE.Scene();
+        app.environment = null;
+        app.player = null;
+        app.hud = null;
+        app._dayNightKey = -1;   // اكسر ذاكرة الدقيقة الحالية
+        app.__restoreClock = () => { Time.getClock = realGetClock; };
+        return app;
+    };
+
+    const crashes = [];
+    const tints = {};
+    for (const season of SEASONS) {
+        const app = makeApp(season, 12);
+        try {
+            app.applyDayNight();
+            tints[season] = app.lights.sun.color.getHex();
+        } catch (err) {
+            crashes.push(`${season}: ${err.constructor.name}: ${err.message}`);
+        } finally {
+            app.__restoreClock();
+        }
+    }
+
+    check('VP-16a applyDayNight() runs for all four seasons without throwing',
+        crashes.length === 0, crashes.join(' | '));
+
+    check('VP-16b each season applies its documented sun tint',
+        SEASONS.every((s) => tints[s] === EXPECTED_TINT[s]),
+        SEASONS.map((s) => `${s}=${tints[s]?.toString(16) ?? '✗'}`).join(' '));
+
+    // حارس ثابت موجَّه: الثوابت تُعرَّف في App.js ولا تعود يتيمة في PlayerController
+    const appSrc = read('js/core/App.js');
+    const pcRaw = read('js/player/PlayerController.js');
+    // نُزيل التعليقات حتى لا يطابق الحارس مجرد ذِكر الاسم في شرح
+    const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+    const pcSrc = stripComments(pcRaw);
+    const MOVED = ['DEFAULT_SUN_OFFSET', 'SUN_TINT_BY_SEASON', 'AMBIENT_BY_SEASON', 'FOG_DENSITY_BY_SEASON'];
+
+    check('VP-16c App.js defines every day/night constant it references',
+        MOVED.every((c) => new RegExp(`^const ${c}\\s*=`,'m').test(stripComments(appSrc))),
+        MOVED.filter((c) => !new RegExp(`^const ${c}\\s*=`,'m').test(stripComments(appSrc))).join(', '));
+
+    check('VP-16d PlayerController no longer defines orphaned copies of the moved constants',
+        MOVED.every((c) => !new RegExp(`\\bconst ${c}\\s*=`).test(pcSrc)),
+        MOVED.filter((c) => new RegExp(`\\bconst ${c}\\s*=`).test(pcSrc)).join(', '));
+
+    check('VP-16e PLAYER_SPAWN stays the player rig\u2019s owner (no import cycle created)',
+        /^const PLAYER_SPAWN\s*=/m.test(pcSrc) && pcSrc.includes('PLAYER_SPAWN.x'));
+}
+
 /* ---------- ملخص ---------- */
 console.log('\n' + '═'.repeat(60));
 if (failures.length === 0) {
-    console.log(`✅ VERIFICATION PASS — ${passed} checks (VP-02..VP-15), 0 failures.`);
+    console.log(`✅ VERIFICATION PASS — ${passed} checks (VP-02..VP-16), 0 failures.`);
     console.log('═'.repeat(60));
     process.exit(0);
 } else {

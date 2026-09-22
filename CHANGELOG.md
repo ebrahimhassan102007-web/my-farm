@@ -1,5 +1,29 @@
 # سجل التغييرات — MY FARM 3D
 
+## PHASE 0 — انهيار وقت التشغيل (BUG-001) — 2026-09-22
+
+- **BUG-001 `ReferenceError: SUN_TINT_BY_SEASON is not defined`**
+  (`js/core/App.js` + `js/player/PlayerController.js`): عند فصل MF-12
+  انتقل `applyDayNight()` إلى `core/App.js`، لكن ثوابت الفصول الأربعة
+  بقيت في `player/PlayerController.js` **غير مُصدَّرة وغير مُستخدَمة
+  هناك** (بقايا فصل). `App.js` يقرؤها في أول نبضة ليل/نهار ⇒ انهيار
+  مؤكد **٤/٤ فصول**، أي أن اللعبة تنهار فور أول دقيقة لعب حقيقية
+  (اختبارات الفصل السابق لم تكن تُنفِّذ مسار `applyDayNight()`، فمرّ
+  العطب صامتًا).
+- **الإصلاح:** الثوابت تُعرَّف الآن في `js/core/App.js` حيث تُستخدَم
+  (`DEFAULT_SUN_OFFSET` · `SUN_TINT_BY_SEASON` · `AMBIENT_BY_SEASON` ·
+  `FOG_DENSITY_BY_SEASON`)، وأُزيلت النسخ اليتيمة من
+  `PlayerController.js`. لا استيراد من App.js إلى PlayerController
+  لأن App.js يستورده أصلًا ⇒ أي عكس = دورة استيراد (R6).
+- **قرار موثَّق (انحراف عن النص الأصلي):** `PLAYER_SPAWN` **بقي** في
+  `PlayerController.js` ولم يُنقل إلى App.js كما اقترحت المواصفة، لأنه
+  (أ) مُستخدَم فعلًا هناك في `root.position.set(...)` — نقلُه يكسر
+  تركيب اللاعب، (ب) استيراده من App.js يصنع دورة استيراد، (ج) إضافته
+  إلى App.js تنشئ ثابتًا ميتًا جديدًا (App.js لا يقرؤه إطلاقًا).
+- **حارس دائم:** `VP-16` في `tests/vp.mjs` — يُنشئ التطبيق فعلًا
+  ويستدعي `applyDayNight()` لكل فصل، ويتحقق أن كل فصل يُطبّق صبغته
+  الموثّقة. أُثبِت أن الحارس يفشل (exit 1) عند إعادة العطب عمدًا.
+
 ## سبرنت GAP/POLISH (GAP-01 → GAP-07 · POLISH-01 → POLISH-03) — 2026-09-22
 
 المصدر: `public/AGENT_MASTER_PROMPT.md`. بوابة الدمج: `npm run test:all`
