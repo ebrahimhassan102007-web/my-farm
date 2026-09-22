@@ -217,23 +217,15 @@ class TimeManager {
                 `[TimeManager] Offline time: ${elapsedSec}s`
             );
 
-            // Notify crop systems
+            /*
+             * GAP-05: كان هنا حدثان ميتان — `animals:offline` و
+             * `production:offline` — بلا أي مستمع في الشجرة كلها.
+             * الحيوانات والمصانع تستمع إلى `time:offline` نفسه
+             * (AnimalSystem/ProductionSystem._initListeners)، وهو
+             * العقد الوحيد المُعلن. حُذف الحدثان فلا إشارات بلا جمهور.
+             */
             Events.emit(
                 'time:offline',
-                elapsedSec
-            );
-
-            // MF-03: كان هنا تعبئة طاقة أوفلاين — حُذف النظام كليًا.
-
-            // Animal production
-            Events.emit(
-                'animals:offline',
-                elapsedSec
-            );
-
-            // Production queues
-            Events.emit(
-                'production:offline',
                 elapsedSec
             );
         }

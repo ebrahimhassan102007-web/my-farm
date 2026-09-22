@@ -26,7 +26,8 @@ npm i            # يثبّت three محليًا للاختبار الرأسي �
 npm test              # smoke   — منطق اللعب كاملًا (180 فحصًا)
 npm run test:world    # world   — بناء العالم 3D بلا رأس + dispose (67 فحصًا)
 npm run test:contracts# contracts — عقود API + ترقية الحفظ + الاقتصاد (89 فحصًا)
-npm run test:all      # الثلاثة معًا — بوابة الدمج (336 فحصًا)
+npm run test:vp       # vp      — نقاط التحقق الـ15 (27 فحصًا)
+npm run test:all      # الأربعة معًا — بوابة الدمج (363 فحصًا)
 ```
 
 `package.json` موجود **فقط** لأجل الاختبارات الرأسية — اللعبة نفسها لا تستخدمه.
@@ -51,7 +52,8 @@ js/
 │   ├── Calendar.js        ← التقويم الفلكي الحقيقي (الفصول/الأطوار)
 │   └── CollisionEngine.js ← صناديق تصادم + occlusion الكاميرا
 ├── systems/        ← Farming · Land · Animal · Production · Order · Market
-│                     Quest · Storage · Inventory · XP · Building · Social · Event
+│                     Quest · Storage · Inventory · XP · Building
+│                     (GAP-06: كل وحدة هنا مُستوردة فعلًا — يحرسه VP-13)
 ├── data/GameData.js← الجريدة المركزية: أسعار/مخزون/وصفات/اقتصاد (R1)
 ├── player/
 │   └── PlayerController.js← حركة اللاعب + الأدوات + مزج الحركات (MF-12)
@@ -87,4 +89,10 @@ js/
 - حُذف `js/main.backup.js` و`MY_FARM_3D_Gemini_Camera_Updated.html`
   (نسخة أحادية الملف الأولى) من الشجرة في سبرنت الجودة — تاريخهما محفوظ
   في git (قبل `2b11cdb`) إن احتجنا استرجاع أي منهما (MF-12).
+- **GAP-06 (سبرنت GAP/POLISH):** أُزيلت وحدات ميتة من الشجرة —
+  `js/systems/EconomySystem.js` (ملف صفري 0 بايت)، `js/systems/EventSystem.js`
+  و`js/systems/SocialSystem.js` (لا يستوردهما أو يذكرهما أي ملف)،
+  و`js/systems/CropSystem.js` (نموذج نمو موازٍ ميت يكرّر FarmingSystem).
+  تاريخها محفوظ في git قبل هذا الالتزام إن احتجنا استرجاعه. يحرس
+  العودة `VP-13` في `tests/vp.mjs`.
 - تفاصيل كل إصلاح في `CHANGELOG.md`.
