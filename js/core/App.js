@@ -106,6 +106,36 @@ const CONFIG = Object.freeze({
     }
 });
 
+/* إزاحة الشمس الافتراضية قبل أول tick لدورة النهار/الليل. */
+const DEFAULT_SUN_OFFSET = Object.freeze({ x: 22, y: 38, z: 18 });
+
+/**
+ * صبغة ضوء الشمس لكل فصل (Brief §2 «weather mood per hour + season»):
+ * صيف أبيض حار · ربيع محايد · خريف دافئ · شتاء بارد.
+ */
+const SUN_TINT_BY_SEASON = Object.freeze({
+    spring: 0xfff4e0,
+    summer: 0xfff6e4,
+    autumn: 0xffdfae,
+    winter: 0xe9f1ff
+});
+
+/** السماء/الأرض للضوء المحيط لكل فصل. */
+const AMBIENT_BY_SEASON = Object.freeze({
+    spring: { sky: 0xf6ffdf, ground: 0x4f8a2c },
+    summer: { sky: 0xfff3db, ground: 0x487928 },
+    autumn: { sky: 0xffe9c9, ground: 0x6b5a2a },
+    winter: { sky: 0xeaf3ff, ground: 0x3f5f4a }
+});
+
+/** كثافة الضباب: سديم صيفي · خريف أثقل · ضباب شتوي بارد · ربيع صافٍ. */
+const FOG_DENSITY_BY_SEASON = Object.freeze({
+    spring: 0.010,
+    summer: 0.012,
+    autumn: 0.016,
+    winter: 0.020
+});
+
 /* MF-12: PlayerController ← js/player/PlayerController.js ·
    CropBatchRenderer ← js/world/CropBatchRenderer.js (فصل حرفي بلا تغيير سلوك). */
 
