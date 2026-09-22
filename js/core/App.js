@@ -129,6 +129,7 @@ class MyFarmApp {
         this.player = null;
         this.fieldMeshes = new Map();
         this.activeTarget = null; // { type: 'field' | 'slot' | 'door' | 'animal' | 'market' | 'interior', ... }
+        this._lastEmittedTarget = null;
 
         /*
          * 🏠 داخل البيت (Brief §1): مشهد داخلي حقيقي يُبنى مرة واحدة
@@ -962,6 +963,14 @@ class MyFarmApp {
         });
     }
 
+    _setActiveTarget(target) {
+        this.activeTarget = target;
+        if (this._lastEmittedTarget !== target) {
+            this._lastEmittedTarget = target;
+            Events.emit('interaction:target-changed', target);
+        }
+    }
+
     triggerActiveInteraction() {
         if (!this.activeTarget) return;
         const target = this.activeTarget;
@@ -1303,7 +1312,7 @@ class MyFarmApp {
         this.camera.updateProjectionMatrix();
 
         // إغلاق أي هدف/مؤشر من المزرعة
-        this.activeTarget = null;
+        this._setActiveTarget(null);
         document.getElementById('action-prompt')?.classList.remove('visible');
 
         this.soundFX?.play?.('open');
@@ -1330,7 +1339,7 @@ class MyFarmApp {
             this.camera.fov = this._outsideFOV;
             this.camera.updateProjectionMatrix();
         }
-        this.activeTarget = null;
+        this._setActiveTarget(null);
         document.getElementById('action-prompt')?.classList.remove('visible');
 
         this.soundFX?.play?.('open');
@@ -1397,12 +1406,12 @@ class MyFarmApp {
             const promptBtn = document.getElementById('btn-prompt-action');
 
             if (!item) {
-                this.activeTarget = null;
+                this._setActiveTarget(null);
                 promptEl?.classList.remove('visible');
                 return;
             }
 
-            this.activeTarget = { type: 'interior', id: item.id, label: item.label };
+            this._setActiveTarget({ type: 'interior', id: item.id, label: item.label });
             if (!promptEl || !promptTitle || !promptDesc || !promptBtn) return;
 
             promptEl.classList.add('visible');
@@ -1498,7 +1507,7 @@ class MyFarmApp {
         if (!promptEl || !promptTitle || !promptDesc || !promptBtn) return;
 
         if (closestTarget) {
-            this.activeTarget = closestTarget;
+            this._setActiveTarget(closestTarget);
             promptEl.classList.add('visible');
 
             if (closestTarget.type === 'door') {
@@ -1583,7 +1592,7 @@ class MyFarmApp {
                 }
             }
         } else {
-            this.activeTarget = null;
+            this._setActiveTarget(null);
             promptEl.classList.remove('visible');
         }
     }

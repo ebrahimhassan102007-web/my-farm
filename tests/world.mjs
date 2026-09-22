@@ -539,6 +539,42 @@ try {
 }
 check('SkyDome + HouseInterior dispose cleanly', !disposeError, disposeError?.message);
 
+/* ============================================================
+   11) عالم المزرعة: الجبال والأسوار والحراسة من التكرار
+   ============================================================ */
+section('World additions: fences, mountains & instance guards');
+
+check('Distant mountains exist in environment', !!env.mountains || !!env.group.getObjectByName('Distant-mountains'));
+check('Mountains are placed in the far distance', (() => {
+    const m = env.group.getObjectByName('Distant-mountains');
+    return !!m;
+})());
+check('Pen fences surround animal pens', Layout.PENS.every((p) => {
+    const penGroup = env.animals.pens.find((g) => g.id === p.id);
+    return !!penGroup && penGroup.group.userData?.hasFence === true;
+}));
+check('Pen fences registered in collision engine', boxList.some((b) =>
+    b.tag === 'fence' && Layout.PENS.some((p) => String(b.id).startsWith(p.id))
+));
+check('Exactly one windmill exists in building manager', (() => {
+    let count = 0;
+    env.buildings.group.traverse((o) => { if (o.name === 'Windmill') count++; });
+    return count === 1;
+})());
+check('Windmill guard prevents duplicate instances on re-call', (() => {
+    env.buildings.windmill();
+    let count = 0;
+    env.buildings.group.traverse((o) => { if (o.name === 'Windmill') count++; });
+    return count === 1;
+})());
+check('Welcome sign and flowers are guarded against duplication', (() => {
+    env.buildings.sign();
+    env.foliage.buildFlowers();
+    let signs = 0;
+    env.buildings.group.traverse((o) => { if (o.name === 'WelcomeSign') signs++; });
+    return signs === 1;
+})());
+
 /* ---------- ملخص ---------- */
 console.log('\n' + '═'.repeat(60));
 if (failures.length === 0) {

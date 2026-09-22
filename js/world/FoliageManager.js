@@ -221,6 +221,9 @@ export class FoliageManager {
     }
 
     buildFlowers() {
+        // حراسة لعدم تكرار الزهور
+        if (this.group.getObjectByName('Flower-stems')) return;
+
         const spots = [];
         for (let i = 0; i < 2000 && spots.length < FLOWER_COUNT; i++) {
             const x = (Math.random() - 0.5) * 62;

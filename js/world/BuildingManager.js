@@ -506,6 +506,9 @@ export class BuildingManager {
        🌀 الطاحونة — معلم المزرعة (بحجم حقيقي لا لعبة)
        ======================================================== */
     windmill() {
+        // حراسة لضمان طاحونة واحدة فقط وعدم التكرار
+        if (this.group.getObjectByName('Windmill')) return;
+
         const g = new THREE.Group();
         g.name = 'Windmill';
         g.position.set(WINDMILL.x, 0, WINDMILL.z);
@@ -815,6 +818,9 @@ export class BuildingManager {
        🌾 قوس الترحيب عند البوابة الجنوبية
        ======================================================== */
     sign() {
+        // حراسة لعدم تكرار لافتة الترحيب
+        if (this.group.getObjectByName('WelcomeSign')) return;
+
         const g = new THREE.Group();
         g.name = 'WelcomeSign';
         g.position.set(WELCOME_SIGN.x, 0, WELCOME_SIGN.z);

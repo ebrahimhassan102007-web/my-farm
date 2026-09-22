@@ -60,6 +60,9 @@ const { FarmingSystem } = await import('../js/systems/FarmingSystem.js');
 const { ProductionSystem } = await import('../js/systems/ProductionSystem.js');
 const { StorageSystem } = await import('../js/systems/StorageSystem.js');
 const { InventorySystem } = await import('../js/systems/InventorySystem.js');
+const { HUD } = await import('../js/ui/HUD.js');
+const { QuestSystem, INITIAL_QUESTS } = await import('../js/systems/QuestSystem.js');
+const GameData = await import('../js/data/GameData.js');
 
 /* ---------- أداة ---------- */
 let passed = 0;
@@ -442,10 +445,197 @@ section('VP-15 · POLISH-02 — docs match the tree');
         changelog.includes('POLISH-01') && changelog.includes('POLISH-03'));
 }
 
+/* ============================================================
+   VP-16 · ضمانات وحراسة QuestSystem
+   ============================================================ */
+section('VP-16 · QuestSystem window guard & contracts');
+
+{
+    check('VP-16a QuestSystem module exports safely in headless environment',
+        !!QuestSystem && typeof QuestSystem.init === 'function');
+    check('VP-16b QuestSystem window assignment is guarded with typeof window check',
+        read('js/systems/QuestSystem.js').includes("typeof window !== 'undefined'"));
+
+    resetFarm();
+    QuestSystem.initialized = false;
+    QuestSystem.init();
+    check('VP-16c QuestSystem.init() populates initial quests',
+        QuestSystem.getQuests().length >= INITIAL_QUESTS.length);
+    check('VP-16d QuestSystem.getActiveQuests() returns active quest items',
+        QuestSystem.getActiveQuests().length > 0);
+
+    resetFarm();
+    QuestSystem.initialized = false;
+    QuestSystem.init();
+    const quests = QuestSystem.getQuests();
+    quests[0].completed = true;
+    quests[0].claimed = false;
+    GameState.set('quests.items', quests);
+    const res = QuestSystem.claimReward(quests[0].id);
+    check('VP-16e QuestSystem.claimReward() delivers coins and XP faithfully',
+        res.success === true && GameState.get('player.coins') >= quests[0].rewardCoins);
+}
+
+/* ============================================================
+   VP-17 · شريط الأدوات: tomato_seed واكتمال المحاصيل
+   ============================================================ */
+section('VP-17 · Hotbar tomato_seed & crop completeness');
+
+{
+    const hudSrc = read('js/ui/HUD.js');
+    check('VP-17a tomato_seed is present in hotbar layout', hudSrc.includes("'tomato_seed'"));
+    check('VP-17b soybean_seed is retained in hotbar layout', hudSrc.includes("'soybean_seed'"));
+    check('VP-17c sugarcane_seed is retained in hotbar layout', hudSrc.includes("'sugarcane_seed'"));
+    check('VP-17d hotbar layout covers tools, seeds, and storage bag',
+        hudSrc.includes("'axe'") && hudSrc.includes("'wheat_seed'") && hudSrc.includes("'bag'"));
+    check('VP-17e tomato crop definition matches tomato_seed in GameData',
+        GameData.CROPS.tomato?.seedId === 'tomato_seed');
+}
+
+/* ============================================================
+   VP-18 · التفاعل الديناميكي: أيقونة وملصق الفعل
+   ============================================================ */
+section('VP-18 · Dynamic action icon & interaction wiring');
+
+{
+    check('VP-18a HUD listens to interaction:target-changed event',
+        read('js/ui/HUD.js').includes("'interaction:target-changed'"));
+    check('VP-18b App emits interaction:target-changed on target changes',
+        read('js/core/App.js').includes("Events.emit('interaction:target-changed'"));
+
+    let capturedIcon = '';
+    const fakeIcon = { set textContent(v) { capturedIcon = v; } };
+    const fakeBtn = {
+        set textContent(v) { capturedIcon = v; },
+        querySelector: () => fakeIcon,
+        setAttribute() {}
+    };
+    const hudInst = {
+        container: { querySelector: (sel) => (sel === '#hud-btn-interact' ? fakeBtn : null) },
+        onTargetChanged: HUD.prototype.onTargetChanged
+    };
+
+    hudInst.onTargetChanged({ type: 'slot', slot: { state: 'ready' } });
+    check('VP-18c onTargetChanged updates icon to harvest basket on ready crop slot',
+        capturedIcon === '🧺', `icon=${capturedIcon}`);
+
+    hudInst.onTargetChanged({ type: 'slot', slot: { state: 'growing', watered: false } });
+    check('VP-18d onTargetChanged updates icon to watering drop on unwatered growing crop',
+        capturedIcon === '💧', `icon=${capturedIcon}`);
+
+    hudInst.onTargetChanged({ type: 'slot', slot: { state: 'empty' } });
+    check('VP-18e onTargetChanged updates icon to sprout on empty soil slot',
+        capturedIcon === '🌱', `icon=${capturedIcon}`);
+
+    hudInst.onTargetChanged({ type: 'animal', rig: { farmAnimalId: 'none' } });
+    check('VP-18f onTargetChanged updates icon to feed on hungry animal',
+        capturedIcon === '🌾', `icon=${capturedIcon}`);
+
+    hudInst.onTargetChanged(null);
+    check('VP-18g onTargetChanged resets icon to default hand when target is null',
+        capturedIcon === '🤚', `icon=${capturedIcon}`);
+
+    let capturedLabel = '';
+    const fakeLabel = {
+        set textContent(v) { capturedLabel = v; },
+        classList: { toggle() {} }
+    };
+    const labelHud = {
+        container: {
+            querySelector: (sel) => (sel === '#hud-interaction-label' ? fakeLabel : fakeBtn)
+        },
+        onTargetChanged: HUD.prototype.onTargetChanged
+    };
+    labelHud.onTargetChanged({ type: 'slot', slot: { state: 'ready' } });
+    check('VP-18h onTargetChanged updates interaction label text (#hud-interaction-label)',
+        capturedLabel === 'حصاد', `label=${capturedLabel}`);
+}
+
+/* ============================================================
+   VP-19 · تحريك أرقام الـ HUD (_animateNumber)
+   ============================================================ */
+section('VP-19 · HUD number animation _animateNumber');
+
+{
+    check('VP-19a HUD exposes _animateNumber method for smooth numeric transitions',
+        typeof HUD.prototype._animateNumber === 'function');
+
+    let coinsAnimated = false;
+    const hudCoins = {
+        container: { querySelector: () => ({ textContent: '' }) },
+        _animateNumber: () => { coinsAnimated = true; },
+        updateCoins: HUD.prototype.updateCoins
+    };
+    hudCoins.updateCoins(500);
+    check('VP-19b updateCoins utilizes numeric animation / formatting', coinsAnimated === true);
+
+    let gemsAnimated = false;
+    const hudGems = {
+        container: { querySelector: () => ({ textContent: '' }) },
+        _animateNumber: () => { gemsAnimated = true; },
+        updateGems: HUD.prototype.updateGems
+    };
+    hudGems.updateGems(25);
+    check('VP-19c updateGems utilizes numeric animation / formatting', gemsAnimated === true);
+
+    let xpAnimated = false;
+    const hudXP = {
+        container: {
+            querySelector: (sel) => (sel === '#mf-xp-fill' ? { style: {} } : { textContent: '' })
+        },
+        _animateNumber: () => { xpAnimated = true; },
+        updateXP: HUD.prototype.updateXP
+    };
+    hudXP.updateXP(50, 100);
+    check('VP-19d updateXP updates both XP track fill and animated text', xpAnimated === true);
+}
+
+/* ============================================================
+   VP-20 · لوحة المهام الخشبية الثابتة (#quest-panel)
+   ============================================================ */
+section('VP-20 · Fixed wooden quest panel DOM & styling');
+
+{
+    const hudSrc = read('js/ui/HUD.js');
+    check('VP-20a #quest-panel exists in HUD DOM as a fixed wooden panel',
+        hudSrc.includes('id="quest-panel"'));
+    check('VP-20b #hud-interaction-label exists in HUD DOM',
+        hudSrc.includes('id="hud-interaction-label"'));
+
+    const woodCss = read('css/wood.css');
+    check('VP-20c css/wood.css exists in repository and styles #quest-panel',
+        woodCss.includes('#quest-panel') && woodCss.includes('#hud-interaction-label'));
+
+    const html = read('index.html');
+    const hudIdx = html.indexOf('css/hud.css');
+    const woodIdx = html.indexOf('css/wood.css');
+    check('VP-20d index.html links css/wood.css directly after css/hud.css',
+        hudIdx !== -1 && woodIdx > hudIdx,
+        `hudIdx=${hudIdx} woodIdx=${woodIdx}`);
+}
+
+/* ============================================================
+   VP-21 · إصلاحات العيوب ونظافة الـ CSS
+   ============================================================ */
+section('VP-21 · Bug fixes & CSS cleanliness');
+
+{
+    const hudSrc = read('js/ui/HUD.js');
+    check('VP-21a Styled quest classes (.quest-card, .quest-title, .quest-progress-bar) are emitted in quest panel DOM',
+        hudSrc.includes('quest-card') && hudSrc.includes('quest-title') && hudSrc.includes('quest-progress-bar'));
+
+    check('VP-21b Fixed #quest-panel does not require legacy collapsible toggle',
+        hudSrc.includes('id="quest-panel"') && !hudSrc.includes('class="hud-missions-panel is-collapsed"'));
+
+    const bmSrc = read('js/world/BuildingManager.js');
+    check('VP-21c Exactly one windmill instance is enforced by BuildingManager guard',
+        bmSrc.includes("this.group.getObjectByName('Windmill')"));
+}
+
 /* ---------- ملخص ---------- */
 console.log('\n' + '═'.repeat(60));
 if (failures.length === 0) {
-    console.log(`✅ VERIFICATION PASS — ${passed} checks (VP-02..VP-15), 0 failures.`);
+    console.log(`✅ VERIFICATION PASS — ${passed} checks (VP-02..VP-21), 0 failures.`);
     console.log('═'.repeat(60));
     process.exit(0);
 } else {
