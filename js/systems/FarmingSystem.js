@@ -398,14 +398,36 @@ class FarmingSystemService {
         const doubleChance = 0.25 + (fert.yieldBonus || 0) * 0.5;
         const yieldAmount = 1 + (Math.random() < doubleChance ? 1 : 0);
 
-        // بوابة الصوامع: المحاصيل الخام تدخل الصوامع فقط.
-        const gate = StorageSystem.checkAdd(cropDef.id, yieldAmount);
-        if (gate.allowed <= 0) {
+        /*
+         * بوابة الصوامع: المحاصيل الخام والبذور تدخل الصوامع فقط،
+         * وكلاهما يتنافس على نفس الفراغ — لذلك نحجز مكان
+         * «المحصول + رجوع البذرة» معًا قبل بدء الحصاد.
+         *
+         * GAP-02 — البوابة كانت تحجز مكان المحصول وحده، ثم يُضاف رجوع
+         * البذرة بلا بوابة. النتيجة: حصاد يُعلن `success:true` بينما
+         * تُبتلع البذرة بصمت (صوامع على الحافة) ⇒ اللاعب يفقد القدرة
+         * على إعادة الزرع بلا أي إشعار. الآن: لا يتّسع الاثنان ⇒ لا
+         * حصاد، ورسالة واضحة — نفس قاعدة «لا ضياع صامت» المطبَّقة
+         * أصلًا على الصوامع الممتلئة تمامًا.
+         */
+        const seedId = cropDef.seedId;
+        const seedRefund = yieldAmount;
+        const totalNeed = yieldAmount + seedRefund;
+        const siloRoom = StorageSystem.free('silo');
+
+        /*
+         * POLISH-01: قرار واحد من البوابة الموحّدة بدل حسابين متوازيين.
+         * نطلب الكمية الكلية (محصول + بذرة) لأن الاثنين في الصوامع.
+         */
+        const gate = StorageSystem.gateAdd(cropDef.id, totalNeed);
+
+        if (!gate.ok) {
             StorageSystem.reportFull('silo');
             return {
                 success: false,
                 error: StorageSystem.fullMessage('silo'),
-                reason: 'silo_full'
+                reason: 'silo_full',
+                need: { crop: yieldAmount, seed: seedRefund, free: siloRoom }
             };
         }
 
@@ -414,8 +436,13 @@ class FarmingSystemService {
         if (!added.success) {
             return { success: false, error: added.error || 'silo_full' };
         }
-        // رجوع البذرة حتى تبقى الحلقة مستدامة بدون متجر
-        InventorySystem.add(cropDef.seedId, added.added, 'normal');
+
+        /*
+         * رجوع البذرة حتى تبقى الحلقة مستدامة بدون متجر.
+         * GAP-02: مضمون الآن لأن مكانه محجوز أعلاه — ونبلّغ به في النتيجة.
+         */
+        const refunded = InventorySystem.add(seedId, seedRefund, 'normal');
+        const seedReturned = refunded.success ? refunded.added : 0;
 
         const qualityDef = CROP_QUALITIES[quality] || CROP_QUALITIES.normal;
         const xp = Math.round(cropDef.xpReward * qualityDef.xpMultiplier);
@@ -441,6 +468,8 @@ class FarmingSystemService {
             crop: cropDef,
             itemId: cropDef.id,
             amount: added.added,
+            seedId,
+            seedReturned,
             quality,
             qualityName: qualityDef.name,
             qualityIcon: qualityDef.icon,
@@ -453,6 +482,8 @@ class FarmingSystemService {
             success: true,
             crop: cropDef,
             amount: added.added,
+            seedId,
+            seedReturned,
             quality,
             qualityName: qualityDef.name,
             qualityIcon: qualityDef.icon,

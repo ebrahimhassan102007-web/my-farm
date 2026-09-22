@@ -2426,8 +2426,36 @@ class MyFarmApp {
         this.running = false;
     }
 
+    /**
+     * GAP-04 — التدمير كان يحرّر المشهد/المصيّر فقط، ويترك مؤقّتات
+     * النواة حيّة: ساعة اللعبة (وعدّاد الحفظ التلقائي ومؤقّت تحديث
+     * الطلبات)، إضافة إلى مستمع `visibilitychange`. النتيجة: تسريب
+     * مؤقّتات بعد destroy() وأخطاء كتابة على حالة ميتة.
+     * الآن نوقف كل مالك مؤقّت عبر واجهته الرسمية.
+     */
+    _teardownCoreTimers() {
+        try {
+            OrderSystem.stop();
+        } catch (err) {
+            Logger.warn('Teardown', 'OrderSystem.stop failed', err);
+        }
+
+        try {
+            SaveManager.stopAutoSave();
+        } catch (err) {
+            Logger.warn('Teardown', 'SaveManager.stopAutoSave failed', err);
+        }
+
+        try {
+            Time.stop();
+        } catch (err) {
+            Logger.warn('Teardown', 'Time.stop failed', err);
+        }
+    }
+
     destroy() {
         this.stop();
+        this._teardownCoreTimers();
         window.removeEventListener('resize', this._boundResize);
         window.removeEventListener('keydown', this._boundKeyDown);
         window.removeEventListener('keyup', this._boundKeyUp);

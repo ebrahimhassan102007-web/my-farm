@@ -187,6 +187,37 @@ class StorageSystemService {
         return check.allowed >= amount;
     }
 
+    /**
+     * POLISH-01 — بوابة موحّدة للتسليم الجزئي.
+     *
+     * الحصاد والمصانع والحيوانات كانت كلها تُقرّر «جزئي أم كامل؟»
+     * بطريقتها الخاصة، وهو أصل عطلَي الضياع الصامت (GAP-02/03).
+     * هذه الدالة مصدر واحد للقرار: كم يُسلَّم الآن، وكم يتبقّى
+     * للمالك ليحتفظ به، وهل المخزن ممتلئ.
+     *
+     * @returns {{store:string, itemId:string, requested:number, deliverable:number,
+     *            remaining:number, isPartial:boolean, isBlocked:boolean,
+     *            ok:boolean, full:boolean}}
+     */
+    gateAdd(itemId, amount = 1) {
+        const requested = Math.max(0, Math.floor(Number(amount) || 0));
+        const check = this.checkAdd(itemId, requested);
+        const deliverable = Math.min(check.allowed, requested);
+        const remaining = Math.max(0, requested - deliverable);
+
+        return {
+            store: check.store,
+            itemId,
+            requested,
+            deliverable,
+            remaining,
+            isPartial: deliverable > 0 && remaining > 0,
+            isBlocked: deliverable <= 0 && requested > 0,
+            ok: deliverable >= requested,
+            full: check.full
+        };
+    }
+
     /** رسالة عربية موحّدة عند الامتلاء. */
     fullMessage(store) {
         const label = STORE_LABELS[store] || STORE_LABELS.barn;

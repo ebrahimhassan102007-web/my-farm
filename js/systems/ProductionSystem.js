@@ -394,12 +394,12 @@ class ProductionSystemService {
         // على الآلة ولا يُفقد شيء.
         // -----------------------------------------------------
 
-        const gate = StorageSystem.checkAdd(
+        const gate = StorageSystem.gateAdd(
             job.outputItem,
             job.outputAmount
         );
 
-        if (gate.allowed <= 0) {
+        if (gate.isBlocked) {
             StorageSystem.reportFull(gate.store);
 
             return {
@@ -409,13 +409,24 @@ class ProductionSystemService {
             };
         }
 
+        /*
+         * GAP-03 — المخزن قد يتّسع لجزء من الناتج فقط. الكود كان يضيف
+         * الجزء المتاح ثم يحذف الوظيفة كاملة ⇒ بقيّة الناتج تُدمَّر
+         * بصمت، وهو ما يناقض العقد المكتوب فوق هذه الكتلة حرفيًا.
+         * الآن: الوظيفة تُحذف فقط عند تسليم الناتج كاملًا، وإلا
+         * تبقى على الآلة بالكمية المتبقية للجمع لاحقًا.
+         */
+        const delivered = gate.deliverable;
+        const remaining = gate.remaining;
+        const isPartial = gate.isPartial;
+
         // -----------------------------------------------------
         // Add output
         // -----------------------------------------------------
 
         const added = InventorySystem.add(
             job.outputItem,
-            gate.allowed,
+            delivered,
             'normal'
         );
 
@@ -428,23 +439,37 @@ class ProductionSystemService {
         }
 
         // -----------------------------------------------------
-        // Remove job
+        // Remove job — أو الاكتفاء بخصم الكمية المسلَّمة
         // -----------------------------------------------------
 
-        building.productionQueue.splice(
-            index,
-            1
-        );
+        if (isPartial) {
+            job.outputAmount = remaining;
+            job.state = 'ready';
+            GameState.set(
+                'farm.buildings',
+                [...buildings]
+            );
+        } else {
+            building.productionQueue.splice(
+                index,
+                1
+            );
 
-        GameState.set(
-            'farm.buildings',
-            [...buildings]
-        );
+            GameState.set(
+                'farm.buildings',
+                [...buildings]
+            );
+        }
 
         const output = {
             item: job.outputItem,
             amount: added.added
         };
+        if (isPartial) {
+            output.remaining = remaining;
+            // المخزن امتلأ وبقي ناتج على الآلة ⇒ رسالة «رقِّ المخزن».
+            StorageSystem.reportFull(gate.store);
+        }
 
         Events.emit(
             'production:completed',

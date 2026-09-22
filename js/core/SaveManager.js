@@ -45,19 +45,30 @@ const LEGACY_KEYS = Object.freeze({
 const MIGRATIONS = {
     2: (data) => {
         // مزارع قديمة: الحقول تحتاج posX/posZ لعرضها في العالم
-        const fields = LAND_FIELDS_FALLBACK;
         if (data && Array.isArray(data.farm?.tiles) === false && data.farm) {
-            data.farm.tiles = fields;
+            /*
+             * GAP-07: نسخة جديدة من المصفوفة في كل ترقية — لا نُدخل
+             * الثابت المشترك في حالة اللاعب. (GameState.restore ينسخ
+             * عميقًا فيحجب الأثر اليوم، لكن الربط بالمرجع فخّ صامت:
+             * أول تعديل في مكانه على `farm.tiles` كان سيُلوّث الثابت
+             * لكل حفظ قادم في نفس الجلسة.)
+             */
+            data.farm.tiles = makeLandFieldsFallback();
         }
         return data;
     }
 };
 
-/** 2 حقلان مجانيان في المنتصف — نفس LAND_CONFIG.fieldsLayout (base: true). */
-const LAND_FIELDS_FALLBACK = [
-    { id: 'field_center_left', posX: -3.8, posZ: -3.5, price: 100, purchased: true, prepared: true, prepProgress: 100, state: 'empty' },
-    { id: 'field_center_right', posX: 3.8, posZ: -3.5, price: 100, purchased: true, prepared: true, prepProgress: 100, state: 'empty' }
-];
+/**
+ * 2 حقلان مجانيان في المنتصف — نفس LAND_CONFIG.fieldsLayout (base: true).
+ * مصنع (factory) لا ثابت: يمنع تشارك المراجع بين الحفوظات.
+ */
+function makeLandFieldsFallback() {
+    return [
+        { id: 'field_center_left', posX: -3.8, posZ: -3.5, price: 100, purchased: true, prepared: true, prepProgress: 100, state: 'empty' },
+        { id: 'field_center_right', posX: 3.8, posZ: -3.5, price: 100, purchased: true, prepared: true, prepProgress: 100, state: 'empty' }
+    ];
+}
 
 class SaveManagerService {
     constructor() {
@@ -391,14 +402,18 @@ class SaveManagerService {
 
             if (payload.meta.version < SAVE_CONFIG.version) {
                 console.log('[SaveManager] Migrating older save format...');
-                payload.data = this._migrate(payload.data, payload.meta.version);
                 Events.emit('save:migrated');
             }
 
             /*
-             * حتى مع تطابق الإصدار قد تضيف نسخة جديدة مفاتيح غير موجودة
-             * في الحفظ (مثل time.day أو farm.maxAnimals). نملأ الناقص من
-             * الحالة الافتراضية دون أي مساس بتقدّم اللاعب.
+             * ترقية واحدة دائمًا:
+             *  • نسخة أقدم ⇒ خطوات MIGRATIONS من إصدار الحفظ الحالي.
+             *  • نسخة مطابقة ⇒ لا خطوات، لكن `_fillDefaults` يضيف أي
+             *    مفاتيح جديدة أضافتها نسخة اللعبة الحالية.
+             *
+             * GAP-07: كان الاستدعاء يُكرَّر (مرة داخل شرط الإصدار ومرة
+             * خارجه) فيُنفَّذ نفس الترقية مرتين لكل حفظ قديم — عمل مكرر
+             * وفرع ميت.
              */
             payload.data = this._migrate(payload.data, payload.meta.version);
 

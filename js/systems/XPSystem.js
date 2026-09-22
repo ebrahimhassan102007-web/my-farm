@@ -7,8 +7,7 @@
  *   • write GameState 'player.xp' directly   (still handled — we
  *     watch `state:changed`, so legacy call sites keep working).
  *
- * Emits:  'xp:gain'  (amount, source)   — same signature used by
- *                     OrderSystem / EventSystem
+ * Emits:  'xp:gain:applied' (payload)   — { amount, source, leveled }
  *         'player:levelup' (newLevel)   — already consumed by
  *                     SaveManager for an immediate save
  * ============================================================
@@ -25,6 +24,14 @@ export function xpForLevel(level) {
 class XPSystemService {
     constructor() {
         this.initialized = false;
+        /*
+         * GAP-01 — علم إعادة الدخول: `addXp()` يكتب `player.xp` بنفسه ثم
+         * يستدعي `_checkLevelUp()` صراحةً. بدون هذا العلم كانت شبكة
+         * الأمان (مستمع `state:changed`) ترفع المستوى أولًا، فيصل
+         * الاستدعاء الثاني إلى حالة مُسوّاة ويُرجع `leveled=false`
+         * رغم أن اللاعب ارتقى فعلًا — عقد مرتجع كاذب + عمل مكرر.
+         */
+        this._resolvingLevel = false;
     }
 
     init() {
@@ -33,9 +40,13 @@ class XPSystemService {
 
         Events.on('xp:gain', (amount, source) => this.addXp(amount, source));
 
-        // Safety net for modules that set 'player.xp' themselves.
+        /*
+         * شبكة أمان للوحدات التي تكتب `player.xp` مباشرة (توافق خلفي).
+         * GAP-01: لا تعمل أثناء قيادة `addXp()` للترقية — وإلا نُفِّذ
+         * فحص المستوى مرتين وتلوّث المرتجع.
+         */
         Events.on('state:changed', (path) => {
-            if (path === 'player.xp') this._checkLevelUp();
+            if (path === 'player.xp' && !this._resolvingLevel) this._checkLevelUp();
         });
 
         // Make sure a freshly loaded save has a sane xpToNext.
@@ -46,12 +57,23 @@ class XPSystemService {
 
     addXp(amount, source = 'game') {
         const gain = Math.max(0, Math.floor(Number(amount) || 0));
-        if (gain === 0) return { success: false, xp: 0 };
+        if (gain === 0) return { success: false, xp: 0, leveled: false };
 
         const current = GameState.get('player.xp') || 0;
-        GameState.set('player.xp', current + gain);
 
-        const leveled = this._checkLevelUp();
+        /*
+         * GAP-01: نتحكم في الفحص بأنفسنا. نرفع العلم قبل الكتابة حتى لا
+         * يسبقنا مستمع `state:changed`، ثم نفحص مرة واحدة بالضبط —
+         * فالمرتجع `leveled` يعكس ما حدث فعلًا.
+         */
+        this._resolvingLevel = true;
+        let leveled = false;
+        try {
+            GameState.set('player.xp', current + gain);
+            leveled = this._checkLevelUp();
+        } finally {
+            this._resolvingLevel = false;
+        }
 
         Events.emit('xp:gain:applied', { amount: gain, source, leveled });
 

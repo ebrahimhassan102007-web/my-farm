@@ -10,7 +10,8 @@
  * FarmingSystem.js (القمح، الذرة، الجزر، الطماطم).
  *
  * Consumed by: ProductionSystem, BuildingSystem, AnimalSystem,
- * MarketSystem, OrderSystem, SocialSystem, EventSystem, Components.
+ * MarketSystem, OrderSystem, FarmingSystem, Components.
+ * (GAP-06: أُزيل ذكر SocialSystem/EventSystem — وحدتان محذوفتان.)
  *
  * سجل التغيير (Work Order):
  *   MF-02 — FARMING_CONFIG.witherEnabled (افتراضيًا false): المحاصيل لا تذبل.
