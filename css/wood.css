@@ -1,0 +1,333 @@
+/* ==========================================================================
+   MY FARM 3D — WOODEN THEME ENHANCEMENTS (wood.css)
+   --------------------------------------------------------------------------
+   Wooden UI overhaul:
+   - Fixed wooden quest panel on the left side (#quest-panel)
+   - Dynamic interaction label (#hud-interaction-label)
+   - Carved wooden frames, brass studs, and golden bevels
+   - Hotbar wooden texture enhancement and crisp slot badges
+   - Direction-agnostic physical layout (physical left for quest panel)
+   ========================================================================== */
+
+:root {
+  --wood-grain-dark: linear-gradient(180deg, #5c3516 0%, #3a1e0b 100%);
+  --wood-grain-light: linear-gradient(180deg, #fcedc9 0%, #e6cb9d 100%);
+  --wood-grain-card: linear-gradient(180deg, #fff9ea 0%, #faedd0 100%);
+  --wood-gold: #ffbe44;
+  --wood-amber: #e59324;
+  --wood-border: #7c481e;
+  --wood-shadow: 0 6px 18px rgba(0, 0, 0, 0.42);
+}
+
+/* ==========================================================================
+   📜 FIXED WOODEN QUEST PANEL (الجانب الأيسر الفيزيائي)
+   ========================================================================== */
+#game-hud-overlay #quest-panel,
+#quest-panel {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + 58px);
+  left: max(12px, env(safe-area-inset-left));
+  right: auto;
+  inset-inline-start: auto;
+  inset-inline-end: auto;
+  width: min(220px, 46vw);
+  background: var(--wood-grain-light);
+  border: 3px solid var(--wood-border);
+  border-radius: 18px;
+  box-shadow: var(--wood-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  padding: 10px 10px 8px 10px;
+  direction: rtl;
+  z-index: 900;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* مسامير نحاسية أعلى اللوحة الخشبية */
+#quest-panel::before,
+#quest-panel::after {
+  content: '';
+  position: absolute;
+  top: -9px;
+  width: 14px;
+  height: 20px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #875026 0%, #4a290f 100%);
+  border: 1px solid #ffbe44;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+#quest-panel::before { left: 22px; }
+#quest-panel::after { right: 22px; }
+
+.quest-panel-header,
+#quest-panel .missions-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 900;
+  color: #5a2e0a;
+  border-bottom: 2px dashed #b98b58;
+  padding-bottom: 5px;
+  margin-bottom: 8px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.quest-panel-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.quest-panel-title {
+  letter-spacing: 0.3px;
+}
+
+.quest-list,
+#quest-panel .missions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: min(250px, 44vh);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #a3703c transparent;
+  padding-right: 2px;
+}
+
+.quest-list::-webkit-scrollbar,
+#quest-panel .missions-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.quest-list::-webkit-scrollbar-thumb,
+#quest-panel .missions-list::-webkit-scrollbar-thumb {
+  background: #a3703c;
+  border-radius: 4px;
+}
+
+/* بطاقة المهمة */
+.quest-card,
+#quest-panel .mission-card {
+  background: var(--wood-grain-card);
+  border: 1.5px solid #a3703c;
+  border-radius: 12px;
+  padding: 7px 8px;
+  font-size: 11px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+  transition: transform 0.15s ease, border-color 0.2s ease;
+}
+
+.quest-card:hover {
+  transform: translateY(-1px);
+}
+
+.quest-card.completed,
+#quest-panel .mission-card.completed {
+  border-color: #46961a;
+  background: linear-gradient(180deg, #f2faea 0%, #e1f4cf 100%);
+  box-shadow: 0 2px 8px rgba(70, 150, 26, 0.25);
+}
+
+.quest-top,
+#quest-panel .mission-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-weight: 800;
+  color: #4a280c;
+  margin-bottom: 3px;
+}
+
+.quest-title,
+#quest-panel .mission-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #3e2009;
+}
+
+.quest-count,
+#quest-panel .mission-count {
+  font-size: 10.5px;
+  font-weight: 900;
+  color: #743e18;
+  direction: ltr;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.quest-desc {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #6d4c2b;
+  margin-bottom: 5px;
+  line-height: 1.3;
+}
+
+.quest-progress-bar,
+#quest-panel .mission-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(70, 35, 15, 0.22);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.quest-progress-fill,
+#quest-panel .mission-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #79d63c 0%, #52a820 100%);
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+
+.quest-card.completed .quest-progress-fill,
+#quest-panel .mission-card.completed .mission-progress-fill {
+  background: linear-gradient(90deg, #ffd75e 0%, #f0a51c 100%);
+}
+
+.quest-rewards {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  color: #744318;
+  margin-top: 3px;
+}
+
+.quest-reward-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.quest-claim-btn,
+#quest-panel .mission-claim-btn {
+  margin-top: 5px;
+  width: 100%;
+  background: linear-gradient(180deg, #60c524 0%, #3e8e14 100%);
+  border: 1.5px solid #fff;
+  color: #fff;
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  animation: quest-claim-pulse 1.6s infinite ease-in-out;
+}
+
+.quest-claim-btn:active,
+#quest-panel .mission-claim-btn:active {
+  transform: scale(0.96);
+}
+
+@keyframes quest-claim-pulse {
+  0%, 100% { box-shadow: 0 2px 6px rgba(62, 142, 20, 0.35); }
+  50% { box-shadow: 0 0 12px rgba(96, 197, 36, 0.7); }
+}
+
+/* ==========================================================================
+   🏷️ DYNAMIC INTERACTION LABEL (#hud-interaction-label)
+   ========================================================================== */
+#hud-interaction-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  background: rgba(30, 18, 9, 0.92);
+  border: 2px solid var(--wood-gold);
+  border-radius: 999px;
+  color: #ffe8b2;
+  font-size: 12px;
+  font-weight: 900;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 920;
+}
+
+#hud-interaction-label.has-target {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ==========================================================================
+   🪵 HOTBAR WOODEN POLISH
+   ========================================================================== */
+.hud-bottom-hotbar {
+  background: linear-gradient(180deg, #fcedc9 0%, #dfbf89 100%) !important;
+  border: 3px solid #7c481e !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.hotbar-slot {
+  border-radius: 14px !important;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+.hotbar-slot.selected {
+  border-color: #ffde00 !important;
+  box-shadow: 0 0 14px rgba(255, 222, 0, 0.8), 0 3px 8px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* ==========================================================================
+   📱 RESPONSIVE ADJUSTMENTS
+   ========================================================================== */
+@media (max-width: 700px) {
+  #game-hud-overlay #quest-panel,
+  #quest-panel {
+    width: 170px;
+    padding: 7px 7px 6px 7px;
+    top: calc(max(10px, env(safe-area-inset-top)) + 52px);
+  }
+
+  .quest-panel-header,
+  #quest-panel .missions-header {
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+
+  .quest-card,
+  #quest-panel .mission-card {
+    padding: 5px 6px;
+    font-size: 10px;
+  }
+
+  .quest-title,
+  #quest-panel .mission-title {
+    font-size: 10.5px;
+  }
+
+  .quest-desc {
+    display: none; /* توفير مساحة على الشاشات الصغيرة */
+  }
+
+  #hud-interaction-label {
+    font-size: 10.5px;
+    padding: 3px 9px;
+  }
+}
+
+@media (max-width: 420px) {
+  #game-hud-overlay #quest-panel,
+  #quest-panel {
+    width: 145px;
+    max-height: 38vh;
+  }
+}

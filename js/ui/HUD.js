@@ -30,6 +30,8 @@ import { StorageSystem } from '../systems/StorageSystem.js';
 import { iconHTML } from './icons.js';
 import { Logger } from '../core/Logger.js';
 import { xpForLevel } from '../systems/XPSystem.js';
+import { QuestSystem } from '../systems/QuestSystem.js';
+import { AnimalSystem } from '../systems/AnimalSystem.js';
 
 const SEASONS_AR = {
   spring: 'الربيع',
@@ -61,6 +63,7 @@ const HOTBAR_LAYOUT = [
   { id: 'wheat_seed',    name: 'بذور القمح',      icon: '🌾', type: 'seed', cropType: 'wheat',     count: 0 },
   { id: 'corn_seed',     name: 'بذور الذرة',      icon: '🌽', type: 'seed', cropType: 'corn',      count: 0 },
   { id: 'carrot_seed',   name: 'بذور الجزر',      icon: '🥕', type: 'seed', cropType: 'carrot',    count: 0 },
+  { id: 'tomato_seed',   name: 'بذور الطماطم',    icon: '🍅', type: 'seed', cropType: 'tomato',    count: 0 },
   { id: 'soybean_seed',  name: 'بذور فول الصويا', icon: '🫛', type: 'seed', cropType: 'soybean',   count: 0 },
   { id: 'sugarcane_seed', name: 'بذور قصب السكر', icon: '🎋', type: 'seed', cropType: 'sugarcane', count: 0 },
   { id: 'bag',           name: 'المخزن',          icon: '🎒', type: 'panel', panel: 'bag' }
@@ -179,12 +182,14 @@ export class HUD {
         </div>
       </header>
 
-      <!-- ===================== MISSIONS (يسار) ===================== -->
-      <button type="button" class="hud-missions-toggle" id="hud-missions-toggle" aria-label="المهام" aria-expanded="false">📋</button>
-      <div class="hud-missions-panel is-collapsed" id="hud-missions-panel" aria-label="لوحة المهام">
-        <div class="missions-header">📋 المهام</div>
-        <div class="missions-list" id="hud-missions-list"></div>
-      </div>
+      <!-- ===================== FIXED WOODEN QUEST PANEL (يسار) ===================== -->
+      <aside class="quest-panel hud-missions-panel" id="quest-panel" aria-label="لوحة المهام">
+        <div class="quest-panel-header missions-header">
+          <span class="quest-panel-icon" aria-hidden="true">📋</span>
+          <span class="quest-panel-title">المهام</span>
+        </div>
+        <div class="quest-list missions-list" id="hud-missions-list"></div>
+      </aside>
 
       <!-- ================== UTILITY STACK (يمين) ================== -->
       <aside class="hud-utility-stack" aria-label="أدوات المزرعة">
@@ -205,8 +210,11 @@ export class HUD {
 
       <!-- ========== ACTIONS (أسفل اليمين — فيزيائي) ========== -->
       <div class="hud-action-stack">
+        <span class="hud-interaction-label" id="hud-interaction-label"></span>
         <button type="button" class="jump-button" id="hud-btn-jump" aria-label="قفز">⤴️</button>
-        <button type="button" class="harvest-button" id="hud-btn-interact" aria-label="تفاعل">🤚</button>
+        <button type="button" class="harvest-button" id="hud-btn-interact" aria-label="تفاعل">
+          <span id="hud-action-icon">🤚</span>
+        </button>
       </div>
 
       <!-- ================== BOTTOM HOTBAR ================== -->
@@ -233,6 +241,7 @@ export class HUD {
       this.eventBus.on('storage:upgraded', () => this.syncStorage());
       this.eventBus.on('storage:full', () => this.syncStorage());
       this.eventBus.on('time:season', () => this.pullClock());
+      this.eventBus.on('interaction:target-changed', (target) => this.onTargetChanged(target));
       // أي تغيير في المخزن يحدّث عدّادات البذور
       this.eventBus.on('state:changed', (path) => {
         if (path === 'inventory.items' || path === 'inventory') this.syncSeedCounts();
@@ -269,7 +278,7 @@ export class HUD {
     });
 
     const missionsToggle = this.container?.querySelector('#hud-missions-toggle');
-    const missionsPanel = this.container?.querySelector('#hud-missions-panel');
+    const missionsPanel = this.container?.querySelector('#quest-panel') || this.container?.querySelector('#hud-missions-panel');
     missionsToggle?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.setMissionsOpen(!this.missionsOpen);
@@ -280,7 +289,7 @@ export class HUD {
   setMissionsOpen(open) {
     this.missionsOpen = !!open;
     const toggle = this.container?.querySelector('#hud-missions-toggle');
-    const panel = this.container?.querySelector('#hud-missions-panel');
+    const panel = this.container?.querySelector('#quest-panel') || this.container?.querySelector('#hud-missions-panel');
     panel?.classList.toggle('is-collapsed', !this.missionsOpen);
     toggle?.classList.toggle('is-open', this.missionsOpen);
     toggle?.setAttribute('aria-expanded', this.missionsOpen ? 'true' : 'false');
@@ -349,12 +358,20 @@ export class HUD {
 
   updateCoins(val) {
     const el = this.container?.querySelector('#mf-coins');
-    if (el) el.textContent = Number(val ?? 0).toLocaleString('en-US');
+    if (!el) return;
+    const next = Number(val ?? 0);
+    const prev = this._prevCoins !== undefined ? this._prevCoins : next;
+    this._prevCoins = next;
+    this._animateNumber(el, prev, next, 400);
   }
 
   updateGems(val) {
     const el = this.container?.querySelector('#mf-gems');
-    if (el) el.textContent = Number(val ?? 0).toLocaleString('en-US');
+    if (!el) return;
+    const next = Number(val ?? 0);
+    const prev = this._prevGems !== undefined ? this._prevGems : next;
+    this._prevGems = next;
+    this._animateNumber(el, prev, next, 400);
   }
 
   /** MF-05: حدّ XP التالي يُقرأ من منحنى XPSystem — لا «100» سحرية (R1). */
@@ -373,10 +390,49 @@ export class HUD {
     const txt = this.container?.querySelector('#mf-xp-text');
     const c = Number(curr ?? 0);
     const m = Number(max ?? 100);
-    if (txt) txt.textContent = `${c} / ${m}`;
+    if (txt) {
+      const prev = this._prevXP !== undefined ? this._prevXP : c;
+      this._prevXP = c;
+      this._animateNumber(txt, prev, c, 350, (v) => `${v} / ${m}`);
+    }
     if (fill && m > 0) {
       fill.style.width = `${Math.min(100, Math.max(0, (c / m) * 100))}%`;
     }
+  }
+
+  /**
+   * تحريك تدريجي للأرقام (coins / gems / XP) لتغذية بصرية سلسة.
+   */
+  _animateNumber(el, fromVal, toVal, duration = 400, formatFn = (v) => Math.round(v).toLocaleString('en-US')) {
+    if (!el) return;
+    const startNum = Number(fromVal) || 0;
+    const targetNum = Number(toVal) || 0;
+    if (startNum === targetNum || typeof requestAnimationFrame === 'undefined') {
+      el.textContent = formatFn(targetNum);
+      return;
+    }
+
+    if (el._animFrame) {
+      cancelAnimationFrame(el._animFrame);
+      el._animFrame = null;
+    }
+
+    const startTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const tick = (now) => {
+      const elapsed = (now || Date.now()) - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(startNum + (targetNum - startNum) * ease);
+      el.textContent = formatFn(current);
+
+      if (progress < 1) {
+        el._animFrame = requestAnimationFrame(tick);
+      } else {
+        el.textContent = formatFn(targetNum);
+        el._animFrame = null;
+      }
+    };
+    el._animFrame = requestAnimationFrame(tick);
   }
 
   /* ==========================================================
@@ -448,9 +504,10 @@ export class HUD {
     const listEl = this.container?.querySelector('#hud-missions-list');
     if (!listEl) return;
 
-    const quests = window.QuestSystem ? window.QuestSystem.getActiveQuests() : [];
+    const qs = QuestSystem || (typeof window !== 'undefined' ? window.QuestSystem : null);
+    const quests = qs ? qs.getActiveQuests() : [];
     if (!quests.length) {
-      listEl.innerHTML = '<div class="missions-empty">لا مهام حالياً — ازرع واسقِ واحصد 🌾</div>';
+      listEl.innerHTML = '<div class="quest-empty missions-empty">لا مهام حالياً — ازرع واسقِ واحصد 🌾</div>';
       return;
     }
 
@@ -459,29 +516,124 @@ export class HUD {
       const canClaim = q.completed && !q.claimed;
 
       return `
-        <div class="mission-card ${q.completed ? 'completed' : ''}">
-          <div class="mission-top">
-            <span class="mission-title">${q.title}</span>
-            <span class="mission-count">${q.progress || 0}/${q.target}</span>
+        <div class="quest-card mission-card ${q.completed ? 'completed' : ''}">
+          <div class="quest-top mission-top">
+            <span class="quest-title mission-title">${q.title}</span>
+            <span class="quest-count mission-count">${q.progress || 0}/${q.target}</span>
           </div>
-          <div class="mission-progress-bar">
-            <div class="mission-progress-fill" style="width: ${pct}%"></div>
+          ${q.description ? `<div class="quest-desc">${q.description}</div>` : ''}
+          <div class="quest-progress-bar mission-progress-bar">
+            <div class="quest-progress-fill mission-progress-fill" style="width: ${pct}%"></div>
           </div>
-          ${canClaim ? `<button type="button" class="mission-claim-btn" data-quest-id="${q.id}">استلام المكافأة</button>` : ''}
+          <div class="quest-rewards">
+            <span class="quest-reward-item">💰 ${q.rewardCoins || 0}</span>
+            <span class="quest-reward-item">✨ ${q.rewardXP || 0} XP</span>
+          </div>
+          ${canClaim ? `<button type="button" class="quest-claim-btn mission-claim-btn" data-quest-id="${q.id}">استلام المكافأة</button>` : ''}
         </div>
       `;
     }).join('');
 
-    listEl.querySelectorAll('.mission-claim-btn').forEach(btn => {
+    listEl.querySelectorAll('.mission-claim-btn, .quest-claim-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const qId = btn.dataset.questId;
-        if (window.QuestSystem) {
-          window.QuestSystem.claimReward(qId);
+        const qs2 = QuestSystem || (typeof window !== 'undefined' ? window.QuestSystem : null);
+        if (qs2) {
+          qs2.claimReward(qId);
           this.renderMissions();
         }
       });
     });
+  }
+
+  /* ==========================================================
+     🎯 التفاعل الديناميكي — تغيير أيقونة وملصق الفعل عند الاقتراب
+     ========================================================== */
+  onTargetChanged(target) {
+    const btn = this.container?.querySelector('#hud-btn-interact');
+    const labelEl = this.container?.querySelector('#hud-interaction-label');
+    const iconEl = btn?.querySelector?.('#hud-action-icon') || this.container?.querySelector('#hud-action-icon') || btn;
+    if (!btn) return;
+
+    let icon = '🤚';
+    let label = '';
+
+    if (target) {
+      switch (target.type) {
+        case 'slot': {
+          const s = target.slot;
+          if (s?.state === 'ready') {
+            icon = '🧺';
+            label = 'حصاد';
+          } else if (s?.state === 'growing') {
+            icon = s.watered ? '⏳' : '💧';
+            label = s.watered ? 'ينمو...' : 'ري';
+          } else if (s?.state === 'empty') {
+            icon = '🌱';
+            label = 'زراعة';
+          } else if (s?.state === 'withered') {
+            icon = '🧹';
+            label = 'تنظيف';
+          }
+          break;
+        }
+        case 'animal': {
+          const animalId = target.rig?.farmAnimalId;
+          const animal = typeof AnimalSystem !== 'undefined' && AnimalSystem.getAnimalById ? AnimalSystem.getAnimalById(animalId) : null;
+          if (animal?.state === 'ready') {
+            icon = '🧺';
+            label = 'جمع';
+          } else {
+            icon = '🌾';
+            label = 'إطعام';
+          }
+          break;
+        }
+        case 'field': {
+          const f = target.data;
+          if (!f?.purchased) {
+            icon = '💰';
+            label = 'شراء';
+          } else {
+            icon = '🪓';
+            label = 'تجهيز';
+          }
+          break;
+        }
+        case 'door': {
+          const isHouse = target.door?.action === 'enter-house';
+          icon = isHouse ? '🏠' : (target.door?.open ? '🚪' : '🚪');
+          label = isHouse ? 'دخول' : (target.door?.open ? 'إغلاق' : 'فتح');
+          break;
+        }
+        case 'market': {
+          icon = '🛒';
+          label = 'سوق';
+          break;
+        }
+        case 'interior': {
+          if (target.id === 'exit') {
+            icon = '🚪';
+            label = 'خروج';
+          } else if (target.id === 'chest') {
+            icon = '📦';
+            label = 'صندوق';
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (iconEl) iconEl.textContent = icon;
+    btn.setAttribute('aria-label', label || 'تفاعل');
+
+    if (labelEl) {
+      labelEl.textContent = label;
+      labelEl.classList.toggle('has-target', !!label);
+    }
   }
 
   /* ==========================================================

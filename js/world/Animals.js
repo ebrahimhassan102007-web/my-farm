@@ -805,6 +805,10 @@ export class Animals {
 
         this._buildTrough(pen, { hw, hd, gate });
 
+        pen.userData.isPen = true;
+        pen.userData.hasFence = true;
+        pen.userData.fenceId = `pen-fence-${id}`;
+
         if (this.collision) {
             const walls = this.collision.addBuildingWalls({
                 id, x, z,
@@ -812,7 +816,8 @@ export class Animals {
                 depth: d,
                 thickness: 0.3,
                 height: 1.1,
-                door: { side: gate, width: gw * 2 }
+                door: { side: gate, width: gw * 2 },
+                tag: 'fence'
             });
             // بوابة الحظيرة مفتوحة دائمًا — يدخلها اللاعب للإطعام والجمع.
             if (walls.door) walls.door.solid = false;

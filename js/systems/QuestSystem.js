@@ -221,4 +221,7 @@ class QuestSystemService {
 }
 
 export const QuestSystem = new QuestSystemService();
-window.QuestSystem = QuestSystem;
+if (typeof window !== 'undefined') {
+    window.QuestSystem = QuestSystem;
+}
+

@@ -141,6 +141,38 @@ export class Environment {
         }
         mergeMeshes(hills, { name: 'Edge-hills' });
 
+        // --- جبال بعيدة في الأفق (mesh مدموج بلا تكلفة رسم عالية) ---
+        const mountainMat = new THREE.MeshStandardMaterial({ color: 0x4e6172, roughness: 0.95 });
+        const snowMat = new THREE.MeshStandardMaterial({ color: 0xdde7ee, roughness: 0.8 });
+        const mountains = [];
+        for (let i = 0; i < 18; i++) {
+            const a = (i / 18) * Math.PI * 2 + 0.15;
+            const r = 78 + (i % 4) * 6;
+            const height = 18 + (i % 5) * 5;
+            const radius = 12 + (i % 3) * 3;
+            const m = new THREE.Mesh(
+                new THREE.ConeGeometry(radius, height, 5),
+                mountainMat
+            );
+            m.position.set(Math.cos(a) * r, height / 2 - 2, Math.sin(a) * r);
+            m.rotation.y = i * 0.7;
+            this.group.add(m);
+            mountains.push(m);
+
+            if (height > 20) {
+                const snowH = height * 0.28;
+                const snow = new THREE.Mesh(
+                    new THREE.ConeGeometry(radius * 0.32, snowH, 5),
+                    snowMat
+                );
+                snow.position.set(Math.cos(a) * r, height - snowH / 2 - 2, Math.sin(a) * r);
+                snow.rotation.y = i * 0.7;
+                this.group.add(snow);
+                mountains.push(snow);
+            }
+        }
+        this.mountains = mergeMeshes(mountains, { name: 'Distant-mountains' });
+
         // --- صف أشجار بعيد خارج متناول اللاعب (mesh واحد مدموج) ---
         const trunkMat = new THREE.MeshStandardMaterial({ color: 0x68401f, roughness: 1 });
         const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f792e, roughness: 1 });

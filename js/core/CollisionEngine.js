@@ -114,7 +114,8 @@ export class CollisionEngine {
         depth,
         thickness = 0.38,
         height = 3.4,
-        door = null
+        door = null,
+        tag = 'wall'
     } = {}) {
         const minX = x - width * 0.5;
         const maxX = x + width * 0.5;
@@ -134,7 +135,7 @@ export class CollisionEngine {
                 width: w,
                 depth: thickness,
                 height,
-                tag: 'wall'
+                tag
             });
         };
 
@@ -148,7 +149,7 @@ export class CollisionEngine {
                 width: thickness,
                 depth: d,
                 height,
-                tag: 'wall'
+                tag
             });
         };
 
